@@ -77,7 +77,7 @@ def build_plan(directory: str, sep: str, add_date: bool, lower: bool, pad: bool 
         if lower:
             new_stem = new_stem.lower()
         if add_date:
-            mt = datetime.datetime.fromtimestamp(p.stat().st_mtime).strftime('%Y%m%d')
+            mt = datetime.datetime.fromtimestamp(p.stat().st_mtime).strftime('%y%m%d%H%M')   # YYMMDDHHMM
             if mt not in new_stem:
                 new_stem = f'{new_stem}{sep}{mt}'
         new_name = f'{new_stem}{ext}'

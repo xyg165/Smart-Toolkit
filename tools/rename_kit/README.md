@@ -114,7 +114,7 @@ PDF_报告_v02.pdf
 | `--apply` | 真正执行（不加则只预览） | 关闭 |
 | `--rollback FILE` | 按日志文件回滚 | — |
 | `--pad` | 末尾数字补零（`头像1` → `头像01`）| 关闭 |
-| `--date` | 文件名末尾加修改日期 `YYYYMMDD` | 关闭 |
+| `--date` | 文件名末尾加修改时间 `YYMMDDHHMM`（精确到分钟）| 关闭 |
 | `--lower` | 文件名全部转小写 | 关闭 |
 | `--sep CHAR` | 分隔符（默认下划线 `_`，可改 `-`）| `_` |
 
@@ -123,7 +123,7 @@ PDF_报告_v02.pdf
 ```bash
 # 报告类文件：加日期，方便按时间排序
 python rename_kit.py --dir "./报告" --date --apply
-# → PDF_肖像监测_20261007.pdf
+# → PDF_肖像监测_2610070915.pdf
 
 # 英文素材：全小写 + 短横分隔
 python rename_kit.py --dir "./assets" --lower --sep - --apply
