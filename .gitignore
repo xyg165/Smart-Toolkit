@@ -1,27 +1,32 @@
-# Python
+# ---------- Python ----------
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
 .Python
-build/
-dist/
 *.egg-info/
 
-# 虚拟环境
+# ---------- 虚拟环境 ----------
 .venv/
 venv/
 env/
 
-# 工具运行产物
-_rename_log_*.json
+# ---------- 打包产物（注意：build/ 是打包脚本目录，必须保留！）----------
+dist/
+build_tmp/
+*.spec
 
-# 系统文件
+# ---------- 工具运行产物 ----------
+_filekit_log_*.json
+_rename_log_*.json
+_classify_log_*.json
+
+# ---------- 系统文件 ----------
 .DS_Store
 Thumbs.db
 desktop.ini
 
-# 编辑器
+# ---------- 编辑器 ----------
 .idea/
 .vscode/
 *.swp
