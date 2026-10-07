@@ -219,6 +219,40 @@ def _restart_self(port):
     except Exception:
         os._exit(0)
 
+def api_browse(path):
+    """列出目录内容（用于网页里的文件夹选择）"""
+    if not path:
+        path = str(Path.home())
+    p = Path(path).expanduser()
+    try:
+        p = p.resolve()
+    except Exception:
+        pass
+    if not p.is_dir():
+        return {'error': f'不是有效目录：{path}'}
+    dirs, files = [], []
+    try:
+        # 文件夹排在前面，同组内按名称排序
+        items = sorted(p.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower()))
+        for item in items:
+            if item.name.startswith('.'):
+                continue
+            try:
+                if item.is_dir():
+                    dirs.append({'name': item.name, 'path': str(item)})
+                else:
+                    st = item.stat()
+                    files.append({'name': item.name, 'size': st.st_size,
+                                  'mtime': int(st.st_mtime)})
+            except (PermissionError, OSError):
+                continue
+    except PermissionError:
+        return {'error': f'无权限访问：{p}'}
+    parent = str(p.parent) if p.parent != p else None
+    return {'path': str(p), 'parent': parent, 'dirs': dirs, 'files': files,
+            'file_count': len(files), 'sep': os.sep}
+
+
 def _plan_quiet(directory, mode, opts):
     buf = io.StringIO()
     with redirect_stdout(buf):
