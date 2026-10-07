@@ -76,6 +76,13 @@
   .modal .foot{padding:12px 18px;border-top:1px solid var(--line);display:flex;gap:8px;justify-content:flex-end}
   .spin{display:inline-block;width:13px;height:13px;border:2px solid #fff;border-top-color:transparent;border-radius:50%;animation:sp .7s linear infinite;vertical-align:-2px}
   @keyframes sp{to{transform:rotate(360deg)}}
+  .hist-group{border:1px solid var(--line);border-radius:9px;margin-bottom:12px;overflow:hidden}
+  .hist-head{display:flex;align-items:center;gap:10px;padding:9px 12px;background:#fafbfc;border-bottom:1px solid var(--line);font-size:12.5px;flex-wrap:wrap}
+  .hist-time{font-family:ui-monospace,Menlo,Consolas,monospace}
+  .hist-dir{flex:1;color:var(--muted);font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;word-break:break-all;min-width:140px}
+  .hist-group table{margin:0}
+  .hist-group td,.hist-group th{padding:6px 9px}
+  button.mini{padding:3px 10px;font-size:12px;border-radius:6px}
   .update-bar{position:fixed;left:50%;bottom:22px;transform:translateX(-50%) translateY(140%);background:#1f2328;color:#fff;padding:11px 16px;border-radius:10px;font-size:13px;display:flex;align-items:center;gap:9px;box-shadow:0 8px 28px rgba(0,0,0,.2);transition:transform .25s ease;z-index:100;max-width:92vw;flex-wrap:wrap}
   .update-bar.show{transform:translateX(-50%) translateY(0)}
   .update-bar button{background:#fff;color:#1f2328;border:none;padding:5px 11px;border-radius:6px;cursor:pointer;font:inherit;font-size:12.5px}
@@ -98,6 +105,7 @@
   <div class="tabs">
     <button class="tab active" data-tab="apply">整理文件</button>
     <button class="tab" data-tab="rollback">回退</button>
+    <button class="tab" data-tab="history">执行记录</button>
   </div>
 
   <!-- ============ 整理 ============ -->
@@ -150,6 +158,17 @@
       <div id="rb-logs"><div class="empty">请先选择文件夹</div></div>
     </div>
   </section>
+
+  <!-- ============ 执行记录 ============ -->
+  <section id="tab-history" hidden>
+    <div class="card">
+      <h2><span class="n">4</span>执行记录<span class="note" style="font-weight:400">（每个文件都能单独回退为原名）</span></h2>
+      <div class="row" style="margin-bottom:10px">
+        <button id="btn-reload-history">刷新</button>
+      </div>
+      <div id="history-out"><div class="empty">打开本页时自动加载</div></div>
+    </div>
+  </section>
 </main>
 
 <!-- 目录浏览器 -->
@@ -199,9 +218,11 @@ const esc = s => (s||'').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&
 document.querySelectorAll('.tab').forEach(t => t.onclick = () => {
   document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
   t.classList.add('active');
-  const isApply = t.dataset.tab === 'apply';
-  $('#tab-apply').hidden = !isApply;
-  $('#tab-rollback').hidden = isApply;
+  const which = t.dataset.tab;
+  $('#tab-apply').hidden = which !== 'apply';
+  $('#tab-rollback').hidden = which !== 'rollback';
+  $('#tab-history').hidden = which !== 'history';
+  if(which === 'history') loadHistory();
 });
 
 /* ---------- 目录浏览器 ---------- */
@@ -399,6 +420,62 @@ window.doRollback = async (file, n) => {
   alert(r.ok ? '✅ ' + r.msg : '❌ ' + r.error);
   await loadLogs();
 };
+
+/* ============================================================
+   执行记录：列出每次执行，支持单文件回退为原名
+   ============================================================ */
+async function loadHistory(){
+  $('#history-out').innerHTML = '<div class="note">读取中…</div>';
+  let r;
+  try{ r = await fetch('/api/history').then(x=>x.json()); }
+  catch(e){ $('#history-out').innerHTML = '<div class="alert err">读取失败</div>'; return; }
+  const recs = r.records || [];
+  window._hist = recs;
+  if(!recs.length){
+    $('#history-out').innerHTML = '<div class="empty">还没有执行记录<br><span style="font-size:12px">去「整理文件」页执行一次，这里就会出现</span></div>';
+    return;
+  }
+  let html = '';
+  recs.forEach((rec, ri) => {
+    const t = (rec.time || '').replace('T', ' ');
+    html += '<div class="hist-group">';
+    html += '<div class="hist-head">'
+          + `<span class="hist-time">${esc(t)}</span>`
+          + `<span class="hist-dir" title="${esc(rec.dir)}">${esc(rec.dir)}</span>`
+          + `<span class="badge gray">${(rec.items||[]).length} 个文件</span>`
+          + (rec.exists ? '' : '<span class="badge gray">日志已丢失</span>')
+          + '</div>';
+    if(rec.items && rec.items.length){
+      html += '<table><thead><tr><th style="width:32%">原文件名</th><th style="width:32%">现文件名</th>'
+            + '<th style="width:14%">识别</th><th style="width:130px">操作</th></tr></thead><tbody>';
+      rec.items.forEach((it, ii) => {
+        const cat = it.cat ? `<span class="badge${it.cat === '未分类' ? ' gray' : ''}">${esc(it.cat)}</span>` : '';
+        let action;
+        if(it.rolled_back) action = '<span class="badge gray">已回退</span>';
+        else if(it.can_rollback) action = `<button class="mini" onclick="rollbackOne(${ri},${ii})">回退</button>`;
+        else action = '<span class="note" style="font-size:11.5px">文件已变动</span>';
+        html += `<tr><td class="mono">${esc(it.old)}</td><td class="mono">${esc(it.new)}</td>`
+              + `<td>${cat}</td><td>${action}</td></tr>`;
+      });
+      html += '</tbody></table>';
+    }
+    html += '</div>';
+  });
+  $('#history-out').innerHTML = html;
+}
+
+window.rollbackOne = async (ri, ii) => {
+  const rec = window._hist[ri], it = rec.items[ii];
+  if(!confirm('把这个文件单独回退为原名？\n\n' + it.new + '\n   ↓\n' + it.old)) return;
+  const r = await fetch('/api/rollback_one', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({logfile: rec.log, old: it.old})
+  }).then(x=>x.json());
+  if(r.ok){ await loadHistory(); }
+  else{ alert('❌ ' + r.error); }
+};
+
+$('#btn-reload-history').onclick = loadHistory;
 
 /* ============================================================
    热更新：服务端通过 SSE 推「有更新」，页面自动刷新或提示重启

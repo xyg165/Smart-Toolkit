@@ -512,16 +512,50 @@ def build_plan(directory, mode='name', sep='_', add_date=True, lower=False, pad=
 # ============================================================================
 # 七、执行 / 回滚
 # ============================================================================
+HISTORY_FILE = Path.home() / '.filekit' / 'history.json'
+
+
+def record_history(log_path, directory, count):
+    """把本次执行记进全局索引，供网页版「执行记录」页展示"""
+    try:
+        hf = HISTORY_FILE
+        hf.parent.mkdir(parents=True, exist_ok=True)
+        data = []
+        if hf.exists():
+            try:
+                data = json.loads(hf.read_text(encoding='utf-8'))
+            except Exception:
+                data = []
+        data.append({'log': str(log_path), 'dir': str(directory),
+                     'time': datetime.datetime.now().isoformat(timespec='seconds'),
+                     'count': count})
+        hf.write_text(json.dumps(data[-1000:], ensure_ascii=False, indent=1), encoding='utf-8')
+    except Exception:
+        pass        # 索引失败绝不影响主流程
+
+
+def load_history():
+    """读全局执行记录索引"""
+    try:
+        if HISTORY_FILE.exists():
+            return json.loads(HISTORY_FILE.read_text(encoding='utf-8'))
+    except Exception:
+        pass
+    return []
+
+
 def do_apply(directory, plan):
     d = Path(directory); done = []
     for i in plan:
         (d / i['old']).rename(d / i['new'])
         done.append({'old': i['old'], 'new': i['new'],
-                     'category': i.get('cat'), 'score': i.get('score')})
+                     'category': i.get('cat'), 'score': i.get('score'),
+                     'rolled_back': False})
     log_path = d / f'_filekit_log_{datetime.datetime.now():%Y%m%d_%H%M%S}.json'
     json.dump({'directory': str(d.resolve()), 'version': VERSION,
                'time': datetime.datetime.now().isoformat(timespec='seconds'), 'renames': done},
               open(log_path, 'w', encoding='utf-8'), ensure_ascii=False, indent=2)
+    record_history(log_path, d, len(done))
     print(f'\n✅ 完成 {len(done)} 个')
     print(f'📄 日志：{log_path}')
     print(f'↩️  回滚：python3 {sys.argv[0]} rollback "{log_path}"')

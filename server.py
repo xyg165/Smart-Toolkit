@@ -291,6 +291,68 @@ def api_rollback(logfile):
         return {'ok': False, 'error': str(e)}
 
 
+def api_history(limit=100):
+    """执行记录列表（含每个文件的明细与当前状态）"""
+    out = []
+    for item in reversed(fk.load_history()[-limit:]):
+        log = Path(item.get('log', ''))
+        rec = {'time': item.get('time', ''), 'dir': item.get('dir', ''),
+               'log': str(log), 'count': item.get('count', 0),
+               'exists': log.exists(), 'items': []}
+        if log.exists():
+            try:
+                data = json.loads(log.read_text(encoding='utf-8'))
+                folder = Path(data.get('directory', item.get('dir', '')))
+                for r in data.get('renames', []):
+                    new_name, old_name = r.get('new', ''), r.get('old', '')
+                    done = bool(r.get('rolled_back'))
+                    rec['items'].append({
+                        'old': old_name, 'new': new_name,
+                        'cat': r.get('category'),
+                        'rolled_back': done,
+                        'can_rollback': (not done
+                                         and (folder / new_name).exists()
+                                         and not (folder / old_name).exists()),
+                    })
+            except Exception as e:
+                rec['error'] = str(e)
+        out.append(rec)
+    return {'records': out}
+
+
+def api_rollback_one(logfile, old):
+    """把某条记录里的单个文件改回原名（其余文件不动）"""
+    log = Path(logfile)
+    if not log.exists():
+        return {'ok': False, 'error': '日志文件不存在（文件夹可能被移动或删除）'}
+    try:
+        data = json.loads(log.read_text(encoding='utf-8'))
+    except Exception as e:
+        return {'ok': False, 'error': f'日志读取失败：{e}'}
+    folder = Path(data.get('directory', ''))
+    for r in data.get('renames', []):
+        if r.get('old') != old:
+            continue
+        if r.get('rolled_back'):
+            return {'ok': False, 'error': '这个文件已经回退过了'}
+        src, tgt = folder / r.get('new', ''), folder / r.get('old', '')
+        if not src.exists():
+            return {'ok': False, 'error': f'找不到文件（可能已被移动或改名）：{r.get("new")}'}
+        if tgt.exists():
+            return {'ok': False, 'error': f'原文件名已被占用：{r.get("old")}'}
+        try:
+            src.rename(tgt)
+        except Exception as e:
+            return {'ok': False, 'error': f'改名失败：{e}'}
+        r['rolled_back'] = True
+        try:
+            log.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
+        except Exception:
+            pass
+        return {'ok': True, 'msg': f'已回退为：{r.get("old")}'}
+    return {'ok': False, 'error': '这条记录里没有找到该文件'}
+
+
 def api_env():
     missing = fk.check_env(need_content=True)
     return {'app': 'filekit',
@@ -451,6 +513,8 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, api_browse(q.get('path', '')))
         elif u.path == '/api/logs':
             self._send(200, api_logs(q.get('dir', '')))
+        elif u.path == '/api/history':
+            self._send(200, api_history())
         elif u.path == '/api/env':
             self._send(200, api_env())
         elif u.path == '/api/events':
@@ -480,6 +544,9 @@ class Handler(BaseHTTPRequestHandler):
                                       payload.get('opts', {}), payload.get('groups')))
         elif u.path == '/api/rollback':
             self._send(200, api_rollback(payload.get('logfile', '')))
+        elif u.path == '/api/rollback_one':
+            self._send(200, api_rollback_one(payload.get('logfile', ''),
+                                             payload.get('old', '')))
         else:
             self._send(404, {'error': 'not found'})
 
