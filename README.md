@@ -7,18 +7,45 @@
 
 ## 工具列表
 
-| 工具 | 作用 | 依赖 | 文档 |
+| 工具 | 一句话说明 | 依赖 | 文档 |
 |---|---|---|---|
-| **[rename_kit](tools/rename_kit/)** | 文件批量重命名：按文件名规范（清理 + 类型前缀 + 时间戳）| **零依赖**（纯标准库）| [README](tools/rename_kit/README.md) |
-| **[classify_kit](tools/classify_kit/)** | 读文档**内容**自动归类（38 类）并写进文件名 | 见下方依赖 | [README](tools/classify_kit/README.md) |
+| **[filekit](tools/filekit/)** | 文件整理工具箱：**规范文件名 + 读内容自动归类 + 一键回滚** | 部分功能需要（见下）| [README](tools/filekit/README.md) |
 
-两个工具命令风格一致：**默认预览 → 加 `--apply` 执行 → 出问题一键回滚**。
+> 持续更新中。工具之间彼此独立，复制走就能用。
+
+---
+
+## filekit 功能一览
+
+| 功能 | 说明 | 可用模式 | 需要依赖 |
+|---|---|---|---|
+| **文件名清理** | 去空格、非法字符、括号；去"最终版/副本/final"等废话词 | 全部 | 否 |
+| **类型前缀** | 按扩展名自动加 `IMG`/`DOC`/`XLS`/`PPT`/`PDF`/`AUD`/`VID`/`ZIP` | 全部 | 否 |
+| **内容归类** | 读文档正文，判断属于 **38 类**中的哪一类 | classify / auto | 是 |
+| **图片 OCR** | 图片中文 OCR 后再判断类别（发票、合同扫描件）| classify / auto | 是 |
+| **时间戳入名** | 文件名末尾加 `YYMMDDHHMM`（精确到分钟）| 全部 | 否 |
+| **版本号保留** | 原文件名里的 `v1`/`v2` 原样保留 | 全部 | 否 |
+| **数字补零** | `头像1` → `头像01`（排序正确）| 全部 | 否 |
+| **三级防冲突** | 时间戳 → 序号 → 疑似同名报告 | 全部 | 否 |
+| **疑似同名报告** | 发现同一文档多份时，列清单由你决定 | 全部 | 否 |
+| **预览模式** | 默认不改任何文件，只看会改成什么 | 全部 | 否 |
+| **日志留痕** | 每次执行写 JSON 日志（谁改成了什么）| 全部 | 否 |
+| **一键回滚** | 按日志逆序还原到改动前 | rollback | 否 |
+| **智能模式** | 能读到内容就归类，读不到就只按文件名 | auto | 视情况 |
+
+**三种模式**：
+
+| 场景 | 用哪个 |
+|---|---|
+| 文件名本来就有信息（`采购合同 v1.docx`）| `rename` |
+| 文件名没信息（`文档1.docx`、`未命名.docx`）| `classify` |
+| 文件混着，有的有名有的没名 | **`auto`** |
 
 ---
 
 ## 设计原则
 
-1. **默认安全** —— 破坏性操作默认是"预览"，加参数才真执行
+1. **默认安全** —— 破坏性操作默认是"预览"，加 `--apply` 才真执行
 2. **可回滚** —— 每次改动都写日志，一条命令还原
 3. **不删文件** —— 只重命名，从不删除、从不覆盖（重名自动加序号）
 4. **中文友好** —— 完整支持 UTF-8，中文文件名与内容都能处理
@@ -32,91 +59,60 @@
 git clone https://github.com/xyg165/Smart-Toolkit.git
 cd Smart-Toolkit
 
-# 工具一：只按文件名规范（无需装依赖）
-python tools/rename_kit/rename_kit.py --dir "/你的文件夹"          # 预览
-python tools/rename_kit/rename_kit.py --dir "/你的文件夹" --apply  # 执行
+# 预览（什么都不改）
+python tools/filekit/filekit.py auto --dir "/你的文件夹" --verbose
 
-# 工具二：读内容自动归类
-python tools/classify_kit/classify_kit.py --dir "/你的文档" --verbose  # 预览
-python tools/classify_kit/classify_kit.py --dir "/你的文档" --apply    # 执行
+# 执行
+python tools/filekit/filekit.py auto --dir "/你的文件夹" --apply
+
+# 回滚
+python tools/filekit/filekit.py rollback "/你的文件夹/_filekit_log_xxx.json"
 ```
 
-统一命名结果：
+### 命名结果
+
 ```
 DOC_合同_采购合同_v1_2609151030.docx
-  ↑    ↑      ↑      ↑      ↑
- 类型  分类   原名   版本  YYMMDDHHMM（26年09月15日 10:30）
+ ↑    ↑      ↑     ↑      ↑
+类型  分类   原名   版本  YYMMDDHHMM（26年09月15日 10:30）
 ```
 
 ---
 
-## 工具一：rename_kit
+## 依赖
 
-**解决什么**：文件名乱 —— 带空格、中英混杂、"最终版最终版2"、`头像1/头像10` 排序错乱。
+**零依赖部分**（`rename` 模式 + 所有安全功能）：只用 Python 标准库。
 
-```bash
-python rename_kit.py --dir "./素材" --pad --apply
-```
-
-**效果**：
-```
-Logo image 头像 用于自媒体的头像图片.png  →  IMG_Logo_image_头像_用于自媒体的头像图片.png
-双鱼封面 final 版.png                   →  IMG_双鱼封面.png
-头像1.png / 头像10.png / 头像2.png       →  IMG_头像01.png / IMG_头像10.png / IMG_头像02.png
-```
-
-**零依赖** —— 复制走就能跑。
-
----
-
-## 工具二：classify_kit
-
-**解决什么**：文件名没信息（`文档1.docx`、`未命名.docx`、`扫描件001.png`），但内容能说明它是什么。
-
-```bash
-python classify_kit.py --dir "./历史文件" --verbose
-```
-
-**效果**：
-```
-文档1.docx    →  DOC_合同_文档1_2610070915.docx
-工作簿1.xlsx  →  XLS_报价单_工作簿1_2610070915.xlsx
-扫描件001.png →  IMG_发票_扫描件001_2610070915.png   ← OCR 识别
-随便写写.docx  →  DOC_未分类_随便写写_2610070915.docx  ← 判不准就不硬猜
-```
-
-**内置 38 个分类**：合同 · 发票 · 报价单 · 招投标 · 需求文档 · 方案 · 测试报告 · 验收文档 · 技术文档 · 设计文档 · 说明书 · 图纸 · 知识产权 · 规章制度 · 通知公告 · 会议纪要 · 简历 · 人事档案 · 培训材料 · 财务报表 · 预算 · 报销单 · 内容脚本 · 运营数据 · 法律文书 · 资质证书 · 分析报告 ……
-
-### 附加依赖
+**内容识别部分**（`classify` / `auto`）：
 
 ```bash
 pip install python-docx openpyxl python-pptx pypdf
-# PDF 提取 + 图片 OCR
-apt install poppler-utils tesseract-ocr tesseract-ocr-chi-sim      # Debian/Ubuntu
-dnf install poppler-utils tesseract tesseract-langpack-chi_sim     # RHEL/CentOS
+apt install poppler-utils tesseract-ocr tesseract-ocr-chi-sim    # Debian/Ubuntu
+dnf install poppler-utils tesseract tesseract-langpack-chi_sim   # RHEL/CentOS
 ```
 
 支持格式：**PDF · Word · Excel · PPT · txt/md · 图片（中文 OCR）**
 
 ---
 
-## 共同的安全机制
+## 内置分类（38 类）
 
-| 机制 | 说明 |
+| 大类 | 分类 |
 |---|---|
-| **默认预览** | 不加 `--apply`，一个文件都不动 |
-| **日志留痕** | 每次执行写 `_*_log_YYYYmmdd_HHMMSS.json` |
-| **一键回滚** | `--rollback <日志文件>` 按日志还原 |
-| **不覆盖** | 重名自动加 `_02 _03` |
-| **疑似同名报告** | 发现同一文档多份时，列出清单让你决定 |
+| 商务经营 | 合同 · 保密协议 · 报价单 · 招投标 · 采购订单 · 发票 · 付款凭证 · 客户资料 · 销售合同 |
+| 项目产品 | 需求文档 · 方案 · 项目计划 · 测试报告 · 验收文档 · 项目周报 · 产品文档 |
+| 技术研发 | 技术文档 · 设计文档 · 说明书 · 图纸 · 知识产权 · 技术标准 |
+| 行政人事 | 规章制度 · 通知公告 · 会议纪要 · 简历 · 人事档案 · 培训材料 · 工作总结 |
+| 财务 | 财务报表 · 预算 · 报销单 |
+| 内容运营 | 内容脚本 · 运营数据 · 素材清单 |
+| 法律与其他 | 法律文书 · 资质证书 · 分析报告 |
 
 ---
 
 ## 环境要求
 
 - **Python 3.8+**
-- `rename_kit`：无需第三方依赖
-- `classify_kit`：见上方「附加依赖」
+- 详见各工具 README
 
 ---
 
