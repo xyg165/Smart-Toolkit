@@ -232,10 +232,26 @@ def main():
 
     port = free_port(args.port)
     url = f'http://127.0.0.1:{port}/'
+
+    # 启动前环境自检（缺依赖不影响重命名，只是读不到对应格式）
+    missing = []
+    try:
+        missing = fk.check_env(need_content=True)
+    except Exception:
+        pass
+
     print('=' * 56)
     print('  filekit web —— 本地文件整理工具')
     print('=' * 56)
     print(f'  地址：{url}')
+    if missing:
+        print(f'  环境：缺 {len(missing)} 项依赖（不影响重命名功能）')
+        for k in missing:
+            nm = fk.DEP_HINTS.get(k, (k, ''))[0]
+            print(f'        - {nm}')
+        print('  修复：pip install -r requirements.txt')
+    else:
+        print('  环境：依赖齐全')
     print('  提示：全程本地运行，文件不出本机')
     print('  关闭此窗口即停止服务')
     print('=' * 56)

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ============================================================
-#  filekit 一键安装 / 启动（Linux / macOS）
+#  filekit 一键启动（Linux / macOS）
 #  用法：
 #     bash install.sh            # 安装依赖并启动
 #     bash install.sh --deps     # 只装依赖，不启动
@@ -9,7 +9,7 @@ set -e
 cd "$(dirname "$0")"
 
 echo "=============================================="
-echo "  filekit 安装脚本（Linux / macOS）"
+echo "  filekit 启动脚本（Linux / macOS）"
 echo "=============================================="
 
 # ---------- 1. 检测 Python ----------

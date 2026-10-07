@@ -5,21 +5,9 @@
 
 ---
 
-## 目录
+## filekit —— 文件整理工具箱
 
-- [filekit 是什么](#filekit-是什么)
-- [方式一：网页版（推荐，无需命令行）](#方式一网页版推荐无需命令行)
-- [方式二：命令行版](#方式二命令行版)
-- [功能一览](#功能一览)
-- [三平台安装](#三平台安装)
-- [打独立可执行程序（分发给别人）](#打独立可执行程序分发给别人)
-- [目录结构](#目录结构)
-
----
-
-## filekit 是什么
-
-**filekit** 帮你整理文件：
+**在浏览器里点几下**：选文件夹 → 预览 → 确认执行 → 随时回退。
 
 ```
 文档1.docx           →  DOC_合同_文档1_2610071530.docx
@@ -36,45 +24,44 @@ Logo image 头像.png   →  IMG_Logo_image_头像_2610071530.png
 
 ---
 
-## 方式一：网页版（推荐，无需命令行）
+## 一条命令启动
 
-**在浏览器里点几下就完成**：选文件夹 → 预览 → 确认 → 完成；回退同理。
+| 系统 | 命令 |
+|---|---|
+| **Windows** | 双击 `start.bat` |
+| **Linux / macOS** | `bash start.sh` |
+| **已有 Python 环境** | `python3 server.py` |
 
-```bash
-# Linux / macOS
-bash install.sh
+启动后**浏览器自动打开**（地址 `http://127.0.0.1:8765`），页面：
 
-# Windows：双击 install.bat
+```
+[整理文件]  ① 选择文件夹（可加多个 = 批量）→ ② 处理方式 → ③ 预览 → 确认执行
+[回退]      ① 选文件夹 → ② 选历史记录 → 点回退
 ```
 
-启动后**浏览器自动打开**，页面长这样：
+**首次运行**会自动装 Python 依赖（`start.sh` / `start.bat` 会做这件事）；
+只用重命名功能的话，连依赖都不用装。
 
-| 区域 | 做什么 |
-|---|---|
-| **整理文件** | 添加文件夹（可加多个 = 批量）→ 选处理方式 → 预览 → 确认执行 |
-| **回退** | 选择文件夹 → 列出历史记录 → 点「回退」还原 |
+### 常用参数
 
-**特点**：
-- 全程**本地运行**（监听 `127.0.0.1`，文件不出本机）
-- 支持**单个文件夹**和**批量多个文件夹**
-- 预览时能看到「原文件名 → 新文件名 + 识别类别」
-- 执行前二次确认；执行后可随时回退
-- 零 Web 框架依赖（只用 Python 标准库）
+```bash
+python3 server.py                 # 默认端口 8765，自动开浏览器
+python3 server.py --port 8899     # 换端口
+python3 server.py --no-browser    # 不自动开浏览器
+bash start.sh --deps              # 只装依赖，不启动
+```
 
 ---
 
-## 方式二：命令行版
-
-不想开浏览器的话，命令行一样能用：
+## 不用网页？命令行一样用
 
 ```bash
-python tools/filekit/filekit.py auto --dir "./我的文件夹" --verbose   # 预览
-python tools/filekit/filekit.py auto --dir "./我的文件夹" --apply     # 执行
-python tools/filekit/filekit.py rollback "./文件夹/_filekit_log_xxx.json"  # 回退
-python tools/filekit/filekit.py doctor                               # 检查环境
+python3 tools/filekit/filekit.py auto --dir "./我的文件夹" --verbose      # 预览
+python3 tools/filekit/filekit.py auto --dir "./我的文件夹" --apply        # 执行
+python3 tools/filekit/filekit.py rollback "./文件夹/_filekit_log_xxx.json" # 回退
+python3 tools/filekit/filekit.py doctor                                   # 检查环境
 ```
 
-三种模式：
 | 模式 | 用途 |
 |---|---|
 | `rename` | 只按文件名规范（**零依赖**）|
@@ -98,61 +85,56 @@ python tools/filekit/filekit.py doctor                               # 检查环
 | **疑似同名报告** | 发现同一文档多份时，列清单由你决定 | 全部 | 否 |
 | **预览模式** | 默认不改任何文件，只看会改成什么 | 全部 | 否 |
 | **日志留痕** | 每次执行写 JSON 日志（谁改成了什么）| 全部 | 否 |
-| **一键回退** | 按日志逆序还原到改动前（网页版可按文件夹回退）| 全部 | 否 |
+| **一键回退** | 按日志逆序还原；网页版可按文件夹选记录回退 | 全部 | 否 |
 | **批量文件夹** | 网页版一次可添加多个文件夹统一处理 | 网页版 | 否 |
-| **环境自检** | `doctor` 检查依赖，缺什么提示装什么 | 全部 | 否 |
+| **环境自检** | 启动时提示缺什么、怎么装（`doctor`）| 全部 | 否 |
 
 ---
 
-## 三平台安装
+## 依赖说明
 
-### Linux（Ubuntu / Debian）
-```bash
-bash install.sh
-# 如提示缺系统依赖：
-sudo apt install poppler-utils tesseract-ocr tesseract-ocr-chi-sim
-```
-
-### Linux（CentOS / RHEL / openEuler）
-```bash
-bash install.sh
-# 如提示缺系统依赖：
-sudo dnf install poppler-utils tesseract tesseract-langpack-chi_sim
-```
-
-### macOS
-```bash
-bash install.sh
-# 如提示缺系统依赖：
-brew install poppler tesseract tesseract-lang
-```
-
-### Windows
-```
-双击 install.bat
-# PDF/图片 OCR 需要额外装 Tesseract（可选）：
-#   https://github.com/UB-Mannheim/tesseract/wiki
-```
-
-> **只用重命名功能的话，什么都不用装**（`rename` 模式零依赖）。
-> 缺依赖不会崩溃 —— 对应格式标「未分类」，其它格式照常。
-
----
-
-## 打独立可执行程序（分发给别人）
-
-不想让别人装 Python？在**对应系统上**运行打包脚本，生成单文件可执行程序（含全部 Python 依赖）：
-
-| 系统 | 脚本 | 产物 |
+| 类型 | 装什么 | 什么时候需要 |
 |---|---|---|
-| Windows | `build\build_windows.bat` | `dist\filekit.exe` |
-| macOS | `bash build/build_macos.sh` | `dist/filekit` |
-| Linux | `bash build/build_linux.sh` | `dist/filekit` |
+| **Python 包** | `pip install -r requirements.txt` | 读 Word/Excel/PPT/PDF 内容 |
+| **系统程序** | `pdftotext`（poppler）| 读 PDF 文字 |
+| **系统程序** | `tesseract` + 中文包 | 图片 OCR |
 
-产物可直接发给别人，**双击运行** → 浏览器自动打开。
+系统程序的安装命令：
 
-> ⚠️ 注意：PyInstaller 不能交叉编译 —— Windows 的 exe 必须在 Windows 上打，macOS 的必须在 macOS 上打。
-> 所以三个脚本各自在本平台运行。
+```bash
+# Ubuntu / Debian
+sudo apt install poppler-utils tesseract-ocr tesseract-ocr-chi-sim
+
+# CentOS / RHEL / openEuler
+sudo dnf install poppler-utils tesseract tesseract-langpack-chi_sim
+
+# macOS
+brew install poppler tesseract tesseract-lang
+
+# Windows
+# Tesseract: https://github.com/UB-Mannheim/tesseract/wiki（装完加入 PATH）
+# poppler:   https://github.com/oschwartz10612/poppler-windows/releases
+```
+
+> **缺依赖不会崩溃** —— 对应格式标「未分类」，其它格式照常。
+> 只用重命名（`rename` 模式）的话，什么都不用装。
+
+---
+
+## 可选：打包成独立程序
+
+不想让使用者装 Python 的话，在**对应系统上**运行打包脚本，生成单文件可执行程序：
+
+| 系统 | 脚本 | 产物 | 实测体积 |
+|---|---|---|---|
+| Windows | `build\build_windows.bat` | `dist\filekit.exe` | — |
+| macOS | `bash build/build_macos.sh` | `dist/filekit` | — |
+| Linux | `bash build/build_linux.sh` | `dist/filekit` | **49 MB** |
+
+产物含全部 Python 依赖，直接发给别人，双击运行 → 自动开浏览器。
+
+> ⚠️ PyInstaller **不能交叉编译**：Windows 的 exe 必须在 Windows 上打。
+> 另：图片 OCR 依赖的 tesseract 是系统程序，**打不进包**，仍需使用者自行安装。
 
 ---
 
@@ -161,19 +143,17 @@ brew install poppler tesseract tesseract-lang
 ```
 Smart-Toolkit/
 ├── README.md                 ← 本文件
-├── requirements.txt          ← Python 依赖
-├── install.sh                ← Linux/macOS 一键安装
-├── install.bat               ← Windows 一键安装
-├── server.py                 ← 网页版服务（本地 HTTP，标准库）
-├── web/
-│   └── index.html            ← 网页界面（无外部依赖）
+├── start.sh / start.bat      ← 一键启动（自动装依赖 + 起服务）
+├── server.py                 ← 网页服务（标准库实现，零 Web 框架）
+├── web/index.html            ← 网页界面（无外部依赖）
+├── requirements.txt          ← Python 依赖清单
 ├── tools/filekit/
 │   ├── filekit.py            ← 核心引擎（命令行也可直接用）
 │   └── README.md             ← 命令行版详细文档
-└── build/
-    ├── build_windows.bat     ← Windows 打包
-    ├── build_macos.sh        ← macOS 打包
-    └── build_linux.sh        ← Linux 打包
+└── build/                    ← 可选：三平台打包脚本
+    ├── build_windows.bat
+    ├── build_macos.sh
+    └── build_linux.sh
 ```
 
 ---
@@ -187,7 +167,7 @@ Smart-Toolkit/
 | **一键回退** | 网页版按文件夹选记录回退；命令行按日志文件回退 |
 | **不覆盖** | 重名自动加 `_02 _03` |
 | **不改内容** | 只动文件名，不碰文件内容 |
-| **本地运行** | 网页版只监听 127.0.0.1，文件不出本机 |
+| **本地运行** | 网页版只监听 `127.0.0.1`，文件不出本机 |
 
 ---
 
