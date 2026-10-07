@@ -5,24 +5,92 @@
 
 ---
 
-## 工具列表
+## 目录
 
-| 工具 | 一句话说明 | 依赖 | 文档 |
-|---|---|---|---|
-| **[filekit](tools/filekit/)** | 文件整理工具箱：**规范文件名 + 读内容自动归类 + 一键回滚** | 部分功能需要（见下）| [README](tools/filekit/README.md) |
-
-> 持续更新中。工具之间彼此独立，复制走就能用。
+- [filekit 是什么](#filekit-是什么)
+- [方式一：网页版（推荐，无需命令行）](#方式一网页版推荐无需命令行)
+- [方式二：命令行版](#方式二命令行版)
+- [功能一览](#功能一览)
+- [三平台安装](#三平台安装)
+- [打独立可执行程序（分发给别人）](#打独立可执行程序分发给别人)
+- [目录结构](#目录结构)
 
 ---
 
-## filekit 功能一览
+## filekit 是什么
+
+**filekit** 帮你整理文件：
+
+```
+文档1.docx           →  DOC_合同_文档1_2610071530.docx
+工作簿1.xlsx          →  XLS_报价单_工作簿1_2610071530.xlsx
+Logo image 头像.png   →  IMG_Logo_image_头像_2610071530.png
+扫描件001.png         →  IMG_发票_扫描件001_2610071530.png     ← 图片 OCR
+方案 最终版.docx       →  DOC_方案_方案_2610071530.docx
+```
+
+三件事：
+1. **规范文件名** —— 去空格/废话词，加类型前缀，加时间戳
+2. **读内容归类** —— 38 个分类（合同/发票/方案/需求/测试报告…），支持 Word/Excel/PPT/PDF/图片OCR
+3. **可回退** —— 每次操作写日志，随时一键还原
+
+---
+
+## 方式一：网页版（推荐，无需命令行）
+
+**在浏览器里点几下就完成**：选文件夹 → 预览 → 确认 → 完成；回退同理。
+
+```bash
+# Linux / macOS
+bash install.sh
+
+# Windows：双击 install.bat
+```
+
+启动后**浏览器自动打开**，页面长这样：
+
+| 区域 | 做什么 |
+|---|---|
+| **整理文件** | 添加文件夹（可加多个 = 批量）→ 选处理方式 → 预览 → 确认执行 |
+| **回退** | 选择文件夹 → 列出历史记录 → 点「回退」还原 |
+
+**特点**：
+- 全程**本地运行**（监听 `127.0.0.1`，文件不出本机）
+- 支持**单个文件夹**和**批量多个文件夹**
+- 预览时能看到「原文件名 → 新文件名 + 识别类别」
+- 执行前二次确认；执行后可随时回退
+- 零 Web 框架依赖（只用 Python 标准库）
+
+---
+
+## 方式二：命令行版
+
+不想开浏览器的话，命令行一样能用：
+
+```bash
+python tools/filekit/filekit.py auto --dir "./我的文件夹" --verbose   # 预览
+python tools/filekit/filekit.py auto --dir "./我的文件夹" --apply     # 执行
+python tools/filekit/filekit.py rollback "./文件夹/_filekit_log_xxx.json"  # 回退
+python tools/filekit/filekit.py doctor                               # 检查环境
+```
+
+三种模式：
+| 模式 | 用途 |
+|---|---|
+| `rename` | 只按文件名规范（**零依赖**）|
+| `classify` | 读内容归类 |
+| `auto` | 智能：能读内容就归类，否则按文件名 |
+
+---
+
+## 功能一览
 
 | 功能 | 说明 | 可用模式 | 需要依赖 |
 |---|---|---|---|
 | **文件名清理** | 去空格、非法字符、括号；去"最终版/副本/final"等废话词 | 全部 | 否 |
 | **类型前缀** | 按扩展名自动加 `IMG`/`DOC`/`XLS`/`PPT`/`PDF`/`AUD`/`VID`/`ZIP` | 全部 | 否 |
 | **内容归类** | 读文档正文，判断属于 **38 类**中的哪一类 | classify / auto | 是 |
-| **图片 OCR** | 图片中文 OCR 后再判断类别（发票、合同扫描件）| classify / auto | 是 |
+| **图片 OCR** | 图片中文 OCR 后再判断类别（发票、合同扫描件）| classify / auto | 是（**系统级**）|
 | **时间戳入名** | 文件名末尾加 `YYMMDDHHMM`（精确到分钟）| 全部 | 否 |
 | **版本号保留** | 原文件名里的 `v1`/`v2` 原样保留 | 全部 | 否 |
 | **数字补零** | `头像1` → `头像01`（排序正确）| 全部 | 否 |
@@ -30,99 +98,96 @@
 | **疑似同名报告** | 发现同一文档多份时，列清单由你决定 | 全部 | 否 |
 | **预览模式** | 默认不改任何文件，只看会改成什么 | 全部 | 否 |
 | **日志留痕** | 每次执行写 JSON 日志（谁改成了什么）| 全部 | 否 |
-| **一键回滚** | 按日志逆序还原到改动前 | rollback | 否 |
-| **智能模式** | 能读到内容就归类，读不到就只按文件名 | auto | 视情况 |
-
-**三种模式**：
-
-| 场景 | 用哪个 |
-|---|---|
-| 文件名本来就有信息（`采购合同 v1.docx`）| `rename` |
-| 文件名没信息（`文档1.docx`、`未命名.docx`）| `classify` |
-| 文件混着，有的有名有的没名 | **`auto`** |
+| **一键回退** | 按日志逆序还原到改动前（网页版可按文件夹回退）| 全部 | 否 |
+| **批量文件夹** | 网页版一次可添加多个文件夹统一处理 | 网页版 | 否 |
+| **环境自检** | `doctor` 检查依赖，缺什么提示装什么 | 全部 | 否 |
 
 ---
 
-## 设计原则
+## 三平台安装
 
-1. **默认安全** —— 破坏性操作默认是"预览"，加 `--apply` 才真执行
-2. **可回滚** —— 每次改动都写日志，一条命令还原
-3. **不删文件** —— 只重命名，从不删除、从不覆盖（重名自动加序号）
-4. **中文友好** —— 完整支持 UTF-8，中文文件名与内容都能处理
-5. **说人话** —— 报错要能看懂，文档要有例子
-
----
-
-## 快速使用
-
+### Linux（Ubuntu / Debian）
 ```bash
-git clone https://github.com/xyg165/Smart-Toolkit.git
-cd Smart-Toolkit
-
-# 预览（什么都不改）
-python tools/filekit/filekit.py auto --dir "/你的文件夹" --verbose
-
-# 执行
-python tools/filekit/filekit.py auto --dir "/你的文件夹" --apply
-
-# 回滚
-python tools/filekit/filekit.py rollback "/你的文件夹/_filekit_log_xxx.json"
-
-# 检查环境依赖（下载后先跑这个）
-python tools/filekit/filekit.py doctor
+bash install.sh
+# 如提示缺系统依赖：
+sudo apt install poppler-utils tesseract-ocr tesseract-ocr-chi-sim
 ```
 
-### 命名结果
-
-```
-DOC_合同_采购合同_v1_2609151030.docx
- ↑    ↑      ↑     ↑      ↑
-类型  分类   原名   版本  YYMMDDHHMM（26年09月15日 10:30）
-```
-
----
-
-## 依赖
-
-**零依赖部分**（`rename` 模式 + 所有安全功能）：只用 Python 标准库。
-
-**内容识别部分**（`classify` / `auto`）：
-
+### Linux（CentOS / RHEL / openEuler）
 ```bash
-pip install python-docx openpyxl python-pptx pypdf
-apt install poppler-utils tesseract-ocr tesseract-ocr-chi-sim    # Debian/Ubuntu
-dnf install poppler-utils tesseract tesseract-langpack-chi_sim   # RHEL/CentOS
+bash install.sh
+# 如提示缺系统依赖：
+sudo dnf install poppler-utils tesseract tesseract-langpack-chi_sim
 ```
 
-支持格式：**PDF · Word · Excel · PPT · txt/md · 图片（中文 OCR）**
+### macOS
+```bash
+bash install.sh
+# 如提示缺系统依赖：
+brew install poppler tesseract tesseract-lang
+```
+
+### Windows
+```
+双击 install.bat
+# PDF/图片 OCR 需要额外装 Tesseract（可选）：
+#   https://github.com/UB-Mannheim/tesseract/wiki
+```
+
+> **只用重命名功能的话，什么都不用装**（`rename` 模式零依赖）。
+> 缺依赖不会崩溃 —— 对应格式标「未分类」，其它格式照常。
 
 ---
 
-## 内置分类（38 类）
+## 打独立可执行程序（分发给别人）
 
-| 大类 | 分类 |
+不想让别人装 Python？在**对应系统上**运行打包脚本，生成单文件可执行程序（含全部 Python 依赖）：
+
+| 系统 | 脚本 | 产物 |
+|---|---|---|
+| Windows | `build\build_windows.bat` | `dist\filekit.exe` |
+| macOS | `bash build/build_macos.sh` | `dist/filekit` |
+| Linux | `bash build/build_linux.sh` | `dist/filekit` |
+
+产物可直接发给别人，**双击运行** → 浏览器自动打开。
+
+> ⚠️ 注意：PyInstaller 不能交叉编译 —— Windows 的 exe 必须在 Windows 上打，macOS 的必须在 macOS 上打。
+> 所以三个脚本各自在本平台运行。
+
+---
+
+## 目录结构
+
+```
+Smart-Toolkit/
+├── README.md                 ← 本文件
+├── requirements.txt          ← Python 依赖
+├── install.sh                ← Linux/macOS 一键安装
+├── install.bat               ← Windows 一键安装
+├── server.py                 ← 网页版服务（本地 HTTP，标准库）
+├── web/
+│   └── index.html            ← 网页界面（无外部依赖）
+├── tools/filekit/
+│   ├── filekit.py            ← 核心引擎（命令行也可直接用）
+│   └── README.md             ← 命令行版详细文档
+└── build/
+    ├── build_windows.bat     ← Windows 打包
+    ├── build_macos.sh        ← macOS 打包
+    └── build_linux.sh        ← Linux 打包
+```
+
+---
+
+## 安全设计
+
+| 机制 | 说明 |
 |---|---|
-| 商务经营 | 合同 · 保密协议 · 报价单 · 招投标 · 采购订单 · 发票 · 付款凭证 · 客户资料 · 销售合同 |
-| 项目产品 | 需求文档 · 方案 · 项目计划 · 测试报告 · 验收文档 · 项目周报 · 产品文档 |
-| 技术研发 | 技术文档 · 设计文档 · 说明书 · 图纸 · 知识产权 · 技术标准 |
-| 行政人事 | 规章制度 · 通知公告 · 会议纪要 · 简历 · 人事档案 · 培训材料 · 工作总结 |
-| 财务 | 财务报表 · 预算 · 报销单 |
-| 内容运营 | 内容脚本 · 运营数据 · 素材清单 |
-| 法律与其他 | 法律文书 · 资质证书 · 分析报告 |
-
----
-
-## 环境要求
-
-- **Python 3.8+**
-- 详见各工具 README
-
----
-
-## 反馈 / 贡献
-
-1. 提 Issue 描述"你想解决的小问题"
-2. 提 PR（建议每个工具一个目录，含脚本 + README）
+| **默认预览** | 不点"确认执行"，一个文件都不动 |
+| **日志留痕** | 每次执行写 `_filekit_log_YYYYmmdd_HHMMSS.json` |
+| **一键回退** | 网页版按文件夹选记录回退；命令行按日志文件回退 |
+| **不覆盖** | 重名自动加 `_02 _03` |
+| **不改内容** | 只动文件名，不碰文件内容 |
+| **本地运行** | 网页版只监听 127.0.0.1，文件不出本机 |
 
 ---
 

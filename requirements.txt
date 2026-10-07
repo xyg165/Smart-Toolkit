@@ -1,0 +1,10 @@
+# filekit 内容识别所需依赖
+# 安装：pip install -r requirements.txt
+#   （只用 rename 模式的话，这些都不需要）
+
+python-docx>=0.8.11     # 读 Word .docx
+openpyxl>=3.0.10        # 读 Excel .xlsx
+python-pptx>=0.6.21     # 读 PPT .pptx
+pypdf>=3.9.0            # 读 PDF（备用解析，优先用 pdftotext）
+
+# 打包用（可选）：pip install pyinstaller
