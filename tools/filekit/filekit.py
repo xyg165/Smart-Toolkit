@@ -503,7 +503,37 @@ def clean_stem(stem, sep='_'):
 # ============================================================================
 # 六、生成计划
 # ============================================================================
-def build_plan(directory, mode='name', sep='_', add_date=True, lower=False, pad=False, skipped_out=None):
+TEMPLATE_DEFAULT = '{分类}_{原名}_{日期}'
+TEMPLATE_HELP = '''可用变量：
+  {分类} 或 {cat}    识别出的类别（如 合同 / 未分类）
+  {原名} 或 {name}   清理后的原文件名
+  {日期} 或 {date}   时间戳 YYMMDDHHMM（取文件修改时间）
+  {类型} 或 {type}   文件类型前缀（IMG/DOC/XLS…，默认不用，因为后缀已经说明了）
+示例：
+  {分类}_{原名}_{日期}   →  合同_采购合同_v1_2610071928.docx
+  {原名}_{日期}          →  采购合同_v1_2610071928.docx
+  {分类}_{日期}_{原名}   →  合同_2610071928_采购合同_v1.docx'''
+
+
+def render_name(template, prefix='', cat='', name='', date='', sep='_'):
+    """按模板拼装新文件名（不含扩展名）
+
+    空变量留下的连续分隔符会自动收掉，所以用户去掉某段不会残留 __ 。
+    """
+    out = str(template or TEMPLATE_DEFAULT)
+    for key, val in (('{类型}', prefix), ('{type}', prefix),
+                     ('{分类}', cat), ('{cat}', cat),
+                     ('{原名}', name), ('{name}', name),
+                     ('{日期}', date), ('{date}', date)):
+        out = out.replace(key, val)
+    # 收掉连续分隔符与首尾多余分隔符/空格
+    out = re.sub(re.escape(sep) + r'{2,}', sep, out)
+    out = out.strip(sep + ' -')
+    return out or name or 'unnamed'
+
+
+def build_plan(directory, mode='name', sep='_', add_date=True, lower=False, pad=False,
+               skipped_out=None, template=None):
     d = Path(directory)
     if not d.is_dir():
         print(f'错误：目录不存在 {directory}'); sys.exit(1)
@@ -543,27 +573,20 @@ def build_plan(directory, mode='name', sep='_', add_date=True, lower=False, pad=
         has_prefix = bool(PREFIX_RE.match(stem))
         clean = clean_stem(stem, sep) or 'unnamed'
 
-        # ---- 拼装 ----
-        if mode == 'name' or (mode == 'auto' and not text.strip()):
-            # 纯文件名模式：前缀 + 名字
-            new_stem = clean if has_prefix else f'{prefix}{sep}{clean}'
-        else:
-            cat_part = cat if cat else '未分类'
-            cat_in_name = cat_part in clean.split(sep)
-            if not has_prefix:
-                new_stem = f'{prefix}{sep}{clean}' if cat_in_name \
-                           else f'{prefix}{sep}{cat_part}{sep}{clean}'
-            else:
-                new_stem = clean if cat_in_name else f'{clean}{sep}{cat_part}'
+        # ---- 按模板拼装 ----
+        # 默认模板 {分类}_{原名}_{日期}：不再塞文件类型前缀（后缀已经说明类型了）
+        mt = datetime.datetime.fromtimestamp(p.stat().st_mtime).strftime('%y%m%d%H%M')
+        cat_part = '' if mode == 'name' else (cat or '未分类')
+        if has_prefix:
+            # 原文件名已带前缀 → 不重复加；把它当作名字的一部分处理
+            cat_part = cat_part or ''
+        new_stem = render_name(template, prefix=prefix, cat=cat_part,
+                               name=clean, date=mt if add_date else '', sep=sep)
 
         if pad:
             new_stem = re.sub(r'(?<![A-Za-z])(\d+)$', lambda m: m.group(1).zfill(2), new_stem)
         if lower:
             new_stem = new_stem.lower()
-        if add_date:
-            mt = datetime.datetime.fromtimestamp(p.stat().st_mtime).strftime('%y%m%d%H%M')
-            if mt not in new_stem:
-                new_stem = f'{new_stem}{sep}{mt}'
 
         plan.append({'old': p.name, 'new': f'{new_stem}{ext}', 'cat': cat or '未分类',
                      'score': score, 'chars': len(text), 'top3': top3})

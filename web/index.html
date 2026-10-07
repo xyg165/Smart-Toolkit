@@ -83,6 +83,10 @@
   .hist-group table{margin:0}
   .hist-group td,.hist-group th{padding:6px 9px}
   button.mini{padding:3px 10px;font-size:12px;border-radius:6px}
+  .sub-label{font-size:12.5px;color:var(--muted);margin-bottom:7px}
+  .tpl-input{flex:1;min-width:240px;font:13px ui-monospace,Menlo,Consolas,monospace;padding:7px 10px;border:1px solid var(--line);border-radius:8px;background:#fff}
+  .tpl-input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft)}
+  .tpl-preview{font:12.5px ui-monospace,Menlo,Consolas,monospace;color:var(--muted);background:#fafbfc;border:1px dashed var(--line);border-radius:8px;padding:8px 11px;word-break:break-all}
   .batch-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:10px 0 4px;padding:9px 12px;background:var(--warn-soft);border:1px solid #fed7aa;border-radius:8px;font-size:13px}
   .batch-bar input{font:13px ui-monospace,Menlo,Consolas,monospace;padding:5px 9px;border:1px solid #fed7aa;border-radius:6px;background:#fff}
   .update-bar{position:fixed;left:50%;bottom:22px;transform:translateX(-50%) translateY(140%);background:#1f2328;color:#fff;padding:11px 16px;border-radius:10px;font-size:13px;display:flex;align-items:center;gap:9px;box-shadow:0 8px 28px rgba(0,0,0,.2);transition:transform .25s ease;z-index:100;max-width:92vw;flex-wrap:wrap}
@@ -114,14 +118,31 @@
   </div>
 
   <div class="card">
-    <h2><span class="n">2</span>处理方式</h2>
-    <div class="row" style="margin-bottom:10px">
+    <h2><span class="n">2</span>策略设置</h2>
+
+    <div class="sub-label">判断方式</div>
+    <div class="row" style="margin-bottom:14px">
       <label class="chk"><input type="radio" name="mode" value="auto" checked> 智能 <span style="color:#9ca3af">能读内容就归类，否则只按文件名</span></label>
       <label class="chk"><input type="radio" name="mode" value="classify"> 内容归类</label>
       <label class="chk"><input type="radio" name="mode" value="rename"> 只按文件名</label>
     </div>
+
+    <div class="sub-label">命名模板 <span style="color:#9ca3af;font-weight:400">（点变量插入；不想要的段直接删掉）</span></div>
+    <div class="row" style="margin-bottom:8px">
+      <input type="text" id="opt-template" value="{分类}_{原名}_{日期}" class="tpl-input">
+      <button class="mini" id="btn-tpl-reset">恢复默认</button>
+    </div>
+    <div class="row" style="margin-bottom:8px">
+      <button class="mini tpl-var" data-v="{分类}">{分类}</button>
+      <button class="mini tpl-var" data-v="{原名}">{原名}</button>
+      <button class="mini tpl-var" data-v="{日期}">{日期}</button>
+      <button class="mini tpl-var" data-v="{类型}">{类型}</button>
+      <span class="note" style="font-size:11.5px">{类型} = IMG/DOC/XLS…（默认不用，后缀已经说明类型了）</span>
+    </div>
+    <div class="tpl-preview" id="tpl-preview"></div>
+
+    <div class="sub-label" style="margin-top:14px">其它</div>
     <div class="row">
-      <label class="chk"><input type="checkbox" id="opt-date" checked> 加时间戳 YYMMDDHHMM</label>
       <label class="chk"><input type="checkbox" id="opt-pad"> 数字补零（头像1→头像01）</label>
       <label class="chk"><input type="checkbox" id="opt-lower"> 转小写</label>
     </div>
@@ -283,19 +304,63 @@ function renderFolders(){
 function getOpts(){
   return {
     sep:'_',
-    add_date: $('#opt-date').checked,
+    add_date: true,                              // 日期由模板里的 {日期} 决定
+    template: ($('#opt-template').value || '').trim() || '{分类}_{原名}_{日期}',
     pad: $('#opt-pad').checked,
     lower: $('#opt-lower').checked
   };
 }
+
+/* ---------- 命名模板：变量插入 + 实时示例 ---------- */
+const TPL_SAMPLE = {
+  '{分类}':'合同', '{cat}':'合同',
+  '{原名}':'采购合同_v1', '{name}':'采购合同_v1',
+  '{日期}':'2610071928', '{date}':'2610071928',
+  '{类型}':'DOC', '{type}':'DOC',
+};
+
+function renderTplPreview(){
+  const tpl = ($('#opt-template').value || '').trim() || '{分类}_{原名}_{日期}';
+  let out = tpl;
+  Object.entries(TPL_SAMPLE).forEach(([k, v]) => { out = out.split(k).join(v); });
+  out = out.replace(/_{2,}/g, '_').replace(/^[_-]+|[_-]+$/g, '');
+  const warn = (/\{[^}]*\}/.test(out))
+    ? ' <span style="color:#b45309">（有没被替换的变量，检查下拼写）</span>' : '';
+  $('#tpl-preview').innerHTML = '示例：<b>' + esc(out) + '.docx</b>' + warn;
+}
+
+$('#opt-template').addEventListener('input', () => {
+  renderTplPreview();
+  schedulePreview();
+});
+
+document.querySelectorAll('.tpl-var').forEach(b => {
+  b.onclick = () => {
+    const inp = $('#opt-template');
+    const v = b.dataset.v;
+    const pos = inp.selectionStart != null ? inp.selectionStart : inp.value.length;
+    inp.value = inp.value.slice(0, pos) + v + inp.value.slice(pos);
+    inp.focus();
+    inp.selectionStart = inp.selectionEnd = pos + v.length;
+    renderTplPreview();
+    schedulePreview();
+  };
+});
+
+$('#btn-tpl-reset').onclick = () => {
+  $('#opt-template').value = '{分类}_{原名}_{日期}';
+  renderTplPreview();
+  schedulePreview();
+};
 const getMode = () => document.querySelector('input[name=mode]:checked').value;
 
 // 模式或选项一改，预览自动跟着刷新
 document.querySelectorAll('input[name=mode]').forEach(r => r.onchange = schedulePreview);
-['opt-date','opt-pad','opt-lower'].forEach(id => {
+['opt-pad','opt-lower'].forEach(id => {
   const el = document.getElementById(id);
   if(el) el.onchange = schedulePreview;
 });
+renderTplPreview();
 
 let previewTimer = null;
 let previewing = false;

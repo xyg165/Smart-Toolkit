@@ -261,6 +261,7 @@ def _plan_quiet(directory, mode, opts, skipped_out=None):
                              add_date=opts.get('add_date', True),
                              lower=opts.get('lower', False),
                              pad=opts.get('pad', False),
+                             template=opts.get('template'),
                              skipped_out=skipped_out)
     return plan
 
@@ -313,7 +314,7 @@ def api_apply(dirs, mode, opts, groups=None):
                 tasks.append((g['dir'], g['items']))
     if not tasks:
         for d in dirs:
-            plan = _plan_quiet(d, mode, opts)
+            plan = _plan_quiet(d, mode, opts)     # 同一套 opts（含模板）→ 结果与预览一致
             if plan:
                 tasks.append((d, plan))
 
