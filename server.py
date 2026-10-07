@@ -14,9 +14,9 @@ filekit web —— 本地网页版文件整理工具
   python server.py --port 8899    # 指定端口
   python server.py --no-browser   # 不自动打开浏览器
 """
-import io, json, os, re, signal, socket, subprocess, sys, threading, time, urllib.request, webbrowser, datetime, importlib.util
+import io, json, os, queue, re, signal, socket, subprocess, sys, threading, time, urllib.request, webbrowser, datetime, importlib.util
 from contextlib import redirect_stdout
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import HTTPServer, ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
 
@@ -54,41 +54,121 @@ except Exception as e:
 
 
 # ============================================================================
-# 业务 API
+# 热更新：源码变化 → SSE 推给浏览器 → 自动刷新 / 一键重启
+#
+# 原理：浏览器收不到"服务端主动推送"（除了 SSE/WebSocket）。
+#       所以服务端盯住自己的源码文件，一有变化就通过 SSE 长连接广播，
+#       页面收到后自己刷新（前端改动）或提示重启（Python 改动）。
 # ============================================================================
-def api_browse(path):
-    """列出目录内容（用于网页里的文件夹选择）"""
-    if not path:
-        path = str(Path.home())
-    p = Path(path).expanduser()
+_SSE_CLIENTS = []
+_SSE_LOCK = threading.Lock()
+_UPSTREAM = {'version': None}      # 上游最新版本（后台查，供页面提示）
+_SERVER = None                 # 保存 HTTPServer 实例，重启前要关掉以释放端口
+UPSTREAM_REPO = 'xyg165/Smart-Toolkit'    # 上游仓库（查新版本用）
+
+
+def _broadcast(msg):
+    """给所有 SSE 客户端发一条消息"""
+    with _SSE_LOCK:
+        dead = []
+        for q in _SSE_CLIENTS:
+            try:
+                q.put_nowait(msg)
+            except Exception:
+                dead.append(q)
+        for q in dead:
+            _SSE_CLIENTS.remove(q)
+
+
+def _watched_files():
+    """要被监控的文件：前端 + 两个 Python 源"""
+    out = []
+    for rel in ('web/index.html', 'server.py', 'filekit.py', 'tools/filekit/filekit.py'):
+        f = resource_path(rel)
+        # PyInstaller 打包后这些是解包到临时目录的副本，改了也没意义 → 跳过
+        if f.exists() and not getattr(sys, 'frozen', False):
+            out.append(f)
+    return out
+
+
+def watch_sources(interval=2.0):
+    """后台线程：监控源码 mtime，变化就广播"""
+    files = _watched_files()
+    if not files:
+        return
+    mtimes = {}
+    for f in files:
+        try:
+            mtimes[str(f)] = f.stat().st_mtime
+        except Exception:
+            pass
+    while True:
+        time.sleep(interval)
+        changed = []
+        for k, old in list(mtimes.items()):
+            try:
+                new = Path(k).stat().st_mtime
+                if abs(new - old) > 0.5:
+                    mtimes[k] = new
+                    changed.append(Path(k).name)
+            except Exception:
+                pass
+        if changed:
+            py_changed = any(n.endswith('.py') for n in changed)
+            _broadcast({'event': 'changed',
+                        'files': changed,
+                        'need_restart': py_changed,
+                        'version': APP_VERSION})
+            time.sleep(4)      # 防抖：一次保存往往触发多次
+
+
+def check_upstream(timeout=4):
+    """查上游最新 tag；失败静默返回 None（不打扰用户）"""
     try:
-        p = p.resolve()
+        req = urllib.request.Request(
+            f'https://api.github.com/repos/{UPSTREAM_REPO}/tags',
+            headers={'User-Agent': 'filekit'})
+        data = json.loads(urllib.request.urlopen(req, timeout=timeout).read())
+        if isinstance(data, list) and data:
+            return str(data[0].get('name', '')).lstrip('v')
     except Exception:
         pass
-    if not p.is_dir():
-        return {'error': f'不是有效目录：{path}'}
-    dirs, files = [], []
-    try:
-        # 文件夹排在前面，同组内按名称排序
-        items = sorted(p.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower()))
-        for item in items:
-            if item.name.startswith('.'):
-                continue
-            try:
-                if item.is_dir():
-                    dirs.append({'name': item.name, 'path': str(item)})
-                else:
-                    st = item.stat()
-                    files.append({'name': item.name, 'size': st.st_size,
-                                  'mtime': int(st.st_mtime)})
-            except (PermissionError, OSError):
-                continue
-    except PermissionError:
-        return {'error': f'无权限访问：{p}'}
-    parent = str(p.parent) if p.parent != p else None
-    return {'path': str(p), 'parent': parent, 'dirs': dirs, 'files': files,
-            'file_count': len(files), 'sep': os.sep}
+    return None
 
+
+def _restart_self(port):
+    """原地重启当前进程（端口不变）
+
+    用 os.execv 替换进程映像 —— 它**保留 PID**，所以"PID 没变"不代表没重启。
+    验证方法：改一下 filekit.py 的 VERSION，重启后看 /api/env 返回的版本号。
+    """
+    script = os.path.abspath(sys.argv[0])
+    cleaned, skip = [], False
+    for a in sys.argv[1:]:
+        if skip:
+            skip = False
+            continue
+        if a == '--port':
+            skip = True
+            continue
+        if a in ('--no-browser', '--keep-old'):
+            continue
+        cleaned.append(a)
+    cleaned += ['--port', str(port), '--keep-old']
+
+    if getattr(sys, 'frozen', False):
+        cmd = [sys.executable] + cleaned            # 打包版：可执行文件本身即程序
+    else:
+        cmd = [sys.executable, '-u', script] + cleaned   # 源码版：-u 保证输出不缓冲
+    try:
+        if _SERVER is not None:
+            _SERVER.server_close()      # 先释放端口，新进程才能立刻绑上同一个端口
+    except Exception:
+        pass
+    try:
+        os.execv(sys.executable, cmd)
+    except Exception:
+        os._exit(0)
 
 def _plan_quiet(directory, mode, opts):
     buf = io.StringIO()
@@ -215,6 +295,7 @@ def api_env():
     missing = fk.check_env(need_content=True)
     return {'app': 'filekit',
             'version': APP_VERSION,
+            'upstream': _UPSTREAM.get('version'),
             'pid': os.getpid(),
             'missing': [{'key': k, 'name': fk.DEP_HINTS.get(k, (k, ''))[0],
                          'how': fk.DEP_HINTS.get(k, (k, ''))[1]} for k in missing],
@@ -329,6 +410,34 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    def _sse(self):
+        """SSE 长连接：服务端有变化就主动推给浏览器"""
+        self.send_response(200)
+        self.send_header('Content-Type', 'text/event-stream; charset=utf-8')
+        self.send_header('Cache-Control', 'no-cache')
+        self.send_header('Connection', 'keep-alive')
+        self.end_headers()
+        q = queue.Queue()
+        with _SSE_LOCK:
+            _SSE_CLIENTS.append(q)
+        try:
+            self.wfile.write(b'retry: 3000\n\n')
+            self.wfile.flush()
+            while True:
+                try:
+                    msg = q.get(timeout=15)
+                    data = 'data: ' + json.dumps(msg, ensure_ascii=False) + '\n\n'
+                except queue.Empty:
+                    data = ': ping\n\n'          # 心跳，防代理断开
+                self.wfile.write(data.encode('utf-8'))
+                self.wfile.flush()
+        except Exception:
+            pass
+        finally:
+            with _SSE_LOCK:
+                if q in _SSE_CLIENTS:
+                    _SSE_CLIENTS.remove(q)
+
     def do_GET(self):
         u = urlparse(self.path)
         q = {k: v[0] for k, v in parse_qs(u.query).items()}
@@ -344,6 +453,12 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, api_logs(q.get('dir', '')))
         elif u.path == '/api/env':
             self._send(200, api_env())
+        elif u.path == '/api/events':
+            self._sse()
+        elif u.path == '/api/restart':
+            self._send(200, {'ok': True, 'msg': '正在重启…'})
+            port_now = self.server.server_port
+            threading.Timer(0.6, lambda: _restart_self(port_now)).start()
         elif u.path == '/api/quit':
             self._send(200, {'ok': True, 'msg': '正在退出'})
             threading.Timer(0.3, lambda: os._exit(0)).start()
@@ -438,8 +553,23 @@ def main():
     if not args.no_browser:
         threading.Timer(0.8, lambda: webbrowser.open(url)).start()
 
+    # 后台起「源码监控」：代码一改就通知浏览器（前后端都算）
+    threading.Thread(target=watch_sources, daemon=True).start()
+
+    # 后台查上游最新版本（失败静默，不打扰）
+    def _bg_upstream():
+        v = check_upstream()
+        if v:
+            _UPSTREAM['version'] = v
+            if v != APP_VERSION:
+                print(f'  提示：上游已有新版本 v{v}（当前 v{APP_VERSION}）')
+                _broadcast({'event': 'upstream', 'version': v})
+    threading.Thread(target=_bg_upstream, daemon=True).start()
+
+    global _SERVER
     try:
-        HTTPServer(('127.0.0.1', port), Handler).serve_forever()
+        _SERVER = ThreadingHTTPServer(('127.0.0.1', port), Handler)
+        _SERVER.serve_forever()
     except KeyboardInterrupt:
         print('\n已停止')
 

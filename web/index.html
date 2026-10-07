@@ -76,6 +76,11 @@
   .modal .foot{padding:12px 18px;border-top:1px solid var(--line);display:flex;gap:8px;justify-content:flex-end}
   .spin{display:inline-block;width:13px;height:13px;border:2px solid #fff;border-top-color:transparent;border-radius:50%;animation:sp .7s linear infinite;vertical-align:-2px}
   @keyframes sp{to{transform:rotate(360deg)}}
+  .update-bar{position:fixed;left:50%;bottom:22px;transform:translateX(-50%) translateY(140%);background:#1f2328;color:#fff;padding:11px 16px;border-radius:10px;font-size:13px;display:flex;align-items:center;gap:9px;box-shadow:0 8px 28px rgba(0,0,0,.2);transition:transform .25s ease;z-index:100;max-width:92vw;flex-wrap:wrap}
+  .update-bar.show{transform:translateX(-50%) translateY(0)}
+  .update-bar button{background:#fff;color:#1f2328;border:none;padding:5px 11px;border-radius:6px;cursor:pointer;font:inherit;font-size:12.5px}
+  .update-bar button.primary{background:var(--accent);color:#fff}
+  .update-bar a{color:#93c5fd}
   .sum{display:flex;gap:18px;font-size:13px;color:var(--muted);margin-top:10px;flex-wrap:wrap}
   .sum b{color:var(--text)}
 </style>
@@ -176,6 +181,11 @@ const esc = s => (s||'').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&
     const r = await fetch('/api/env').then(r=>r.json());
     const el = $('#env');
     if(r.version){ $('#ver').textContent = 'v' + r.version; }
+    if(r.upstream && r.version && r.upstream !== r.version){
+      showUpdateBar(`🆕 上游已有新版本 <b>v${esc(r.upstream)}</b>（当前 v${esc(r.version)}）`
+        + `　<a href="https://github.com/xyg165/Smart-Toolkit" target="_blank">查看更新</a>`
+        + `　<button onclick="this.parentNode.classList.remove('show')">知道了</button>`);
+    }
     if(r.ok){ el.textContent='✅ 环境就绪'; }
     else{
       el.className='env bad';
@@ -390,6 +400,64 @@ window.doRollback = async (file, n) => {
   await loadLogs();
 };
 
+/* ============================================================
+   热更新：服务端通过 SSE 推「有更新」，页面自动刷新或提示重启
+   ============================================================ */
+function showUpdateBar(html){
+  let bar = document.getElementById('update-bar');
+  if(!bar){
+    bar = document.createElement('div');
+    bar.id = 'update-bar';
+    bar.className = 'update-bar';
+    document.body.appendChild(bar);
+  }
+  bar.innerHTML = html;
+  bar.classList.add('show');
+}
+
+const REPO_URL = 'https://github.com/xyg165/Smart-Toolkit';
+
+function connectSSE(){
+  try{
+    const es = new EventSource('/api/events');
+    es.onmessage = (e) => {
+      let d; try{ d = JSON.parse(e.data); }catch(_){ return; }
+
+      if(d.event === 'changed'){
+        if(d.need_restart){
+          showUpdateBar(`🔄 检测到后端代码更新（${esc(d.files.join('、'))}）`
+            + `　<button class="primary" onclick="doRestart()">立即重启服务</button>`
+            + `　<button onclick="location.reload()">仅刷新页面</button>`);
+        }else{
+          const dirty = document.querySelectorAll('.edit-name.changed').length;
+          if(dirty){
+            showUpdateBar(`🔄 界面已更新，但你有 ${dirty} 处未提交的改名`
+              + `　<button class="primary" onclick="location.reload()">丢弃并刷新</button>`);
+          }else{
+            showUpdateBar(`🔄 界面已更新，3 秒后自动刷新…`
+              + `　<button class="primary" onclick="location.reload()">立即刷新</button>`);
+            setTimeout(() => location.reload(), 3000);
+          }
+        }
+      }
+      else if(d.event === 'upstream'){
+        showUpdateBar(`🆕 上游已有新版本 <b>v${esc(d.version)}</b>`
+          + `　<a href="${REPO_URL}" target="_blank">查看更新</a>`
+          + `　<button onclick="this.parentNode.classList.remove('show')">知道了</button>`);
+      }
+    };
+    es.onerror = () => { /* EventSource 会自动重连，不用管 */ };
+  }catch(e){}
+}
+
+window.doRestart = async () => {
+  if(!confirm('重启服务以加载新代码？\n\n重启期间页面会短暂断开，之后自动恢复。')) return;
+  showUpdateBar('⏳ 正在重启服务，请稍候…');
+  try{ await fetch('/api/restart'); }catch(e){}
+  setTimeout(() => location.reload(), 2600);
+};
+
+connectSSE();
 renderFolders();
 </script>
 </body>
