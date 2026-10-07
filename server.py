@@ -253,25 +253,28 @@ def api_browse(path):
             'file_count': len(files), 'sep': os.sep}
 
 
-def _plan_quiet(directory, mode, opts):
+def _plan_quiet(directory, mode, opts, skipped_out=None):
     buf = io.StringIO()
     with redirect_stdout(buf):
         plan = fk.build_plan(directory, mode=mode,
                              sep=opts.get('sep', '_'),
                              add_date=opts.get('add_date', True),
                              lower=opts.get('lower', False),
-                             pad=opts.get('pad', False))
+                             pad=opts.get('pad', False),
+                             skipped_out=skipped_out)
     return plan
 
 
 def api_preview(dirs, mode, opts):
     out = []
     for d in dirs:
+        skipped = []
         try:
-            plan = _plan_quiet(d, mode, opts)
+            plan = _plan_quiet(d, mode, opts, skipped_out=skipped)
             items = [{'old': i['old'], 'new': i['new'], 'cat': i.get('cat', ''),
                       'score': i.get('score', 0), 'chars': i.get('chars', 0)} for i in plan]
-            out.append({'dir': d, 'ok': True, 'count': len(items), 'items': items})
+            out.append({'dir': d, 'ok': True, 'count': len(items), 'items': items,
+                        'skipped': skipped})
         except SystemExit:
             out.append({'dir': d, 'ok': False, 'error': '目录不存在', 'count': 0, 'items': []})
         except Exception as e:

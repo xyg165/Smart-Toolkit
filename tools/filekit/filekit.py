@@ -39,6 +39,18 @@ TYPE_PREFIX = {
     '.zip': 'ZIP', '.rar': 'ZIP', '.7z': 'ZIP', '.tar': 'ZIP', '.gz': 'ZIP',
     '.psd': 'IMG', '.ai': 'IMG', '.sketch': 'IMG',
 }
+# 这些扩展名一律不处理：源码 / 配置 / 可执行 / 数据库 —— 改了会出事故
+SKIP_EXTS = {
+    '.py', '.pyc', '.pyo', '.pyd', '.sh', '.bash', '.zsh', '.bat', '.cmd', '.ps1',
+    '.js', '.mjs', '.cjs', '.ts', '.tsx', '.jsx', '.vue', '.java', '.class',
+    '.c', '.cc', '.cpp', '.h', '.hpp', '.go', '.rs', '.rb', '.php', '.swift', '.kt',
+    '.json', '.xml', '.yml', '.yaml', '.toml', '.ini', '.cfg', '.conf', '.env',
+    '.lock', '.log', '.tmp', '.temp', '.bak', '.old', '.orig', '.swp', '.swo',
+    '.exe', '.msi', '.dll', '.so', '.dylib', '.bin', '.dat', '.iso', '.dmg', '.pkg', '.deb', '.rpm',
+    '.db', '.sqlite', '.sqlite3', '.mdb',
+    '.gitignore', '.gitattributes', '.dockerignore',
+}
+
 PREFIX_RE = re.compile(r'^(IMG|DOC|XLS|PPT|PDF|AUD|AAC|VID|ZIP|FILE)[_\-]', re.I)
 
 # ============================================================================
@@ -123,7 +135,8 @@ CATEGORIES = {
     "技术文档": {
         "strong": ["接口文档", "API文档", "系统架构", "数据字典", "部署文档", "接口说明",
                    "请求参数", "响应参数", "技术架构"],
-        "weak": ["接口", "架构", "部署", "模块", "服务", "配置"],
+        "weak": ["接口", "架构", "部署", "模块", "服务", "配置",
+                 "端口", "镜像", "还原", "系统", "数据库", "服务端", "运维", "巡检"],
     },
     "设计文档": {
         "strong": ["概要设计", "详细设计", "设计说明", "数据库设计", "UML", "时序图",
@@ -200,7 +213,7 @@ CATEGORIES = {
     "内容脚本": {
         "strong": ["口播", "分镜", "脚本", "开场白", "结尾", "选题方向", "话术",
                    "内容大纲", "视频脚本"],
-        "weak": ["脚本", "文案", "选题", "标题", "内容"],
+        "weak": ["脚本", "文案", "选题", "标题", "内容", "投稿", "稿件", "约稿"],
     },
     "运营数据": {
         "strong": ["播放量", "完播率", "粉丝增长", "转化率", "阅读量", "数据复盘",
@@ -228,6 +241,42 @@ CATEGORIES = {
         "weak": ["分析", "调研", "研究", "结论", "建议", "评估"],
     },
 }
+def load_user_categories():
+    """合并用户自定义分类
+
+    找这两个位置（都存在的会合并，后者优先覆盖同名分类）：
+      · <项目根>/categories.json      —— 随项目走，方便分享给同事
+      · ~/.filekit/categories.json    —— 跟着你走，换项目也在
+
+    格式（两种都行）：
+      {"投稿记录": {"strong": ["投稿", "三方投稿"], "weak": ["稿费", "平台"]}}
+      {"投稿记录": ["投稿", "三方投稿"]}          ← 简化写法：全当 strong
+    """
+    out = {}
+    candidates = [
+        Path(__file__).resolve().parent.parent.parent / 'categories.json',
+        Path.home() / '.filekit' / 'categories.json',
+    ]
+    for f in candidates:
+        try:
+            if not f.exists():
+                continue
+            d = json.loads(f.read_text(encoding='utf-8'))
+            if not isinstance(d, dict):
+                continue
+            for k, v in d.items():
+                if isinstance(v, dict):
+                    out[k] = {'strong': list(v.get('strong', []) or []),
+                              'weak': list(v.get('weak', []) or [])}
+                elif isinstance(v, list):
+                    out[k] = {'strong': list(v), 'weak': []}
+        except Exception:
+            pass          # 用户词库写错不影响主流程
+    return out
+
+
+CATEGORIES.update(load_user_categories())
+
 _WEIGHTED = {c: [(k, 3.0) for k in v.get("strong", [])] + [(k, 1.0) for k in v.get("weak", [])]
              for c, v in CATEGORIES.items()}
 
@@ -406,15 +455,27 @@ def extract_text(p: Path) -> str:
 # ============================================================================
 # 四、内容分类（加权打分）
 # ============================================================================
-def classify(text: str):
-    if not text.strip():
+def classify(text: str, name_text: str = ''):
+    """text=正文内容；name_text=文件名（也参与判断，但权重低）
+
+    为什么要把文件名算进来：很多文档正文读不出特征（扫描件、无文字图片），
+    但文件名本身就有信息（如「三方投稿.xlsx」「放射科访问端口.xlsx」）。
+    之前只看正文 → 大量误判为「未分类」。
+    """
+    if not text.strip() and not name_text.strip():
         return None, 0.0, []
+    body_ok = bool(text.strip())
+    # 正文读不到时，文件名就是唯一线索 → 放大（否则永远够不到门槛）；
+    # 正文能读到时，文件名只作辅助（0.6 倍），避免文件名里的偶然词喧宾夺主。
+    nw = 0.6 if body_ok else 1.5
     scores = {}
     for cat, items in _WEIGHTED.items():
         s = 0.0
         for kw, w in items:
-            if kw in text:
+            if body_ok and kw in text:
                 s += w + min(text.count(kw) - 1, 5) * 0.2
+            if name_text and kw in name_text:
+                s += w * nw
         scores[cat] = round(s, 1)
     ranked = sorted(scores.items(), key=lambda x: -x[1])
     top, ts = ranked[0]
@@ -442,13 +503,25 @@ def clean_stem(stem, sep='_'):
 # ============================================================================
 # 六、生成计划
 # ============================================================================
-def build_plan(directory, mode='name', sep='_', add_date=True, lower=False, pad=False):
+def build_plan(directory, mode='name', sep='_', add_date=True, lower=False, pad=False, skipped_out=None):
     d = Path(directory)
     if not d.is_dir():
         print(f'错误：目录不存在 {directory}'); sys.exit(1)
 
-    files = [p for p in sorted(d.iterdir())
-             if p.is_file() and not p.name.startswith(('.', '_filekit_log_', '_rename_log_', '_classify_log_'))]
+    files, skipped = [], []
+    for p in sorted(d.iterdir()):
+        if not p.is_file():
+            continue
+        if p.name.startswith(('.', '_filekit_log_', '_rename_log_', '_classify_log_')):
+            continue
+        if p.suffix.lower() in SKIP_EXTS:
+            skipped.append(p.name)          # 源码/配置/可执行文件：不碰
+            continue
+        files.append(p)
+    if skipped:
+        print(f'已跳过 {len(skipped)} 个源码/配置文件（不参与整理）')
+    if skipped_out is not None:
+        skipped_out.extend(skipped)
     if mode != 'name':
         print(f'正在读取 {len(files)} 个文件的内容...\n')
 
@@ -461,11 +534,10 @@ def build_plan(directory, mode='name', sep='_', add_date=True, lower=False, pad=
         text, cat, score, top3 = '', None, 0.0, []
         if mode in ('classify', 'auto'):
             text = extract_text(p)
-            if text.strip():
-                cat, score, top3 = classify(text)
-            elif mode == 'classify':
-                pass                                  # 读不到内容 → 未分类
-            # auto 模式：读不到内容 → 退化为纯文件名模式
+            # 文件名也当作线索（正文读不到时它就是主力）
+            name_hint = re.sub(r'[_\-]+', ' ', p.stem)
+            if text.strip() or name_hint.strip():
+                cat, score, top3 = classify(text, name_hint)
 
         stem = p.stem
         has_prefix = bool(PREFIX_RE.match(stem))

@@ -83,6 +83,8 @@
   .hist-group table{margin:0}
   .hist-group td,.hist-group th{padding:6px 9px}
   button.mini{padding:3px 10px;font-size:12px;border-radius:6px}
+  .batch-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:10px 0 4px;padding:9px 12px;background:var(--warn-soft);border:1px solid #fed7aa;border-radius:8px;font-size:13px}
+  .batch-bar input{font:13px ui-monospace,Menlo,Consolas,monospace;padding:5px 9px;border:1px solid #fed7aa;border-radius:6px;background:#fff}
   .update-bar{position:fixed;left:50%;bottom:22px;transform:translateX(-50%) translateY(140%);background:#1f2328;color:#fff;padding:11px 16px;border-radius:10px;font-size:13px;display:flex;align-items:center;gap:9px;box-shadow:0 8px 28px rgba(0,0,0,.2);transition:transform .25s ease;z-index:100;max-width:92vw;flex-wrap:wrap}
   .update-bar.show{transform:translateX(-50%) translateY(0)}
   .update-bar button{background:#fff;color:#1f2328;border:none;padding:5px 11px;border-radius:6px;cursor:pointer;font:inherit;font-size:12.5px}
@@ -131,6 +133,13 @@
     <div class="row">
       <button class="primary" id="btn-preview">预览</button>
       <button id="btn-apply" disabled>确认执行</button>
+    </div>
+    <div id="batch-bar" class="batch-bar" hidden>
+      <span>未分类 <b id="batch-n">0</b> 个，统一填成</span>
+      <input type="text" id="batch-cat" placeholder="如：技术文档 / 投稿记录" list="cat-suggest" style="width:210px">
+      <datalist id="cat-suggest"></datalist>
+      <button class="mini" id="btn-batch-fill">一键填入</button>
+      <span class="note" style="margin-left:4px">（只改新文件名里「未分类」那段）</span>
     </div>
     <div id="preview-out"></div>
   </div>
@@ -290,7 +299,9 @@ $('#btn-preview').onclick = async () => {
   res.forEach(g=>{
     if(!g.ok){ html += `<div class="alert err">${esc(g.dir)}：${esc(g.error)}</div>`; return; }
     total += g.count;
-    html += `<div style="margin-top:14px"><div class="note"><b>${esc(g.dir)}</b> — ${g.count} 个待处理</div>`;
+    const skipTip = (g.skipped && g.skipped.length)
+      ? `<span style="color:#9ca3af"> · 已跳过 ${g.skipped.length} 个源码/配置文件</span>` : '';
+    html += `<div style="margin-top:14px"><div class="note"><b>${esc(g.dir)}</b> — ${g.count} 个待处理${skipTip}</div>`;
     if(!g.count){ html += '</div>'; return; }
     html += '<table><thead><tr><th style="width:44%">原文件名</th><th style="width:44%">新文件名</th><th>识别</th></tr></thead><tbody>';
     g.items.slice(0,300).forEach(it=>{
@@ -299,7 +310,7 @@ $('#btn-preview').onclick = async () => {
       html += `<tr${uncat?' class="uncat"':''}>`
         + `<td class="mono">${esc(it.old)}</td>`
         + `<td><input class="edit-name" data-dir="${esc(g.dir)}" data-old="${esc(it.old)}" `
-        + `data-cat="${esc(it.cat||'')}" value="${esc(it.new)}"></td>`
+        + `data-cat="${esc(it.cat||'')}" data-uncat="${uncat?1:0}" value="${esc(it.new)}"></td>`
         + `<td>${badge}</td></tr>`;
     });
     html += '</tbody></table>';
@@ -313,6 +324,15 @@ $('#btn-preview').onclick = async () => {
       inp.classList.toggle('changed', inp.value !== inp.defaultValue);
     });
   });
+  // 未分类统计 + 类别建议下拉
+  const uncats = document.querySelectorAll('.edit-name[data-uncat="1"]');
+  $('#batch-n').textContent = uncats.length;
+  $('#batch-bar').hidden = uncats.length === 0;
+  const cats = new Set();
+  document.querySelectorAll('.edit-name').forEach(i => { if(i.dataset.cat) cats.add(i.dataset.cat); });
+  ['技术文档','合同','方案','内容脚本','运营数据','财务报表','会议纪要','投稿记录','素材清单','说明书']
+    .forEach(c => cats.add(c));
+  $('#cat-suggest').innerHTML = [...cats].map(c => `<option value="${esc(c)}">`).join('');
   $('#btn-apply').disabled = total === 0;
   $('#preview-alert').innerHTML = total
     ? `<div class="alert ok">共 <b>${total}</b> 个文件待处理。`
@@ -417,6 +437,28 @@ window.rollbackAll = async (ri) => {
   }).then(x=>x.json());
   if(r.ok){ await loadHistory(); }
   else{ alert('❌ ' + (r.error || '回退失败')); }
+};
+
+$('#btn-batch-fill').onclick = () => {
+  const cat = ($('#batch-cat').value || '').trim();
+  if(!cat) return alert('先填一个类别名，比如「技术文档」');
+  if(/[\\/:*?"<>|]/.test(cat)) return alert('类别名不能含 \\ / : * ? " < > |');
+  let n = 0;
+  document.querySelectorAll('.edit-name[data-uncat="1"]').forEach(inp => {
+    const cur = inp.value;
+    let nv;
+    if(cur.includes('_未分类_')) nv = cur.replace('_未分类_', '_' + cat + '_');
+    else if(/^[A-Z]+_/.test(cur)) nv = cur.replace(/^([A-Z]+)_/, '$1_' + cat + '_');
+    else nv = cat + '_' + cur;
+    inp.value = nv;
+    inp.classList.toggle('changed', nv !== inp.defaultValue);
+    inp.dataset.uncat = '0';
+    n++;
+  });
+  const left = document.querySelectorAll('.edit-name[data-uncat="1"]').length;
+  $('#batch-n').textContent = left;
+  $('#batch-bar').hidden = left === 0;
+  alert(`已把 ${n} 个文件填成「${cat}」`);
 };
 
 $('#btn-reload-history').onclick = loadHistory;
