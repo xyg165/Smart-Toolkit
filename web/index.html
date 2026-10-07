@@ -102,73 +102,46 @@
 </header>
 
 <main>
-  <div class="tabs">
-    <button class="tab active" data-tab="apply">整理文件</button>
-    <button class="tab" data-tab="rollback">回退</button>
-    <button class="tab" data-tab="history">执行记录</button>
+  <div class="card">
+    <h2><span class="n">1</span>选择文件夹<span class="note" style="font-weight:400">（可添加多个 = 批量处理）</span></h2>
+    <div class="row" style="margin-bottom:10px">
+      <button class="primary" id="btn-add">＋ 添加文件夹</button>
+      <button id="btn-add-manual">手动输入路径</button>
+    </div>
+    <ul class="folders" id="folder-list"></ul>
   </div>
 
-  <!-- ============ 整理 ============ -->
-  <section id="tab-apply">
-    <div class="card">
-      <h2><span class="n">1</span>选择文件夹<span class="note" style="font-weight:400">（可添加多个 = 批量处理）</span></h2>
-      <div class="row" style="margin-bottom:10px">
-        <button class="primary" id="btn-add">＋ 添加文件夹</button>
-        <button id="btn-add-manual">手动输入路径</button>
-      </div>
-      <ul class="folders" id="folder-list"></ul>
+  <div class="card">
+    <h2><span class="n">2</span>处理方式</h2>
+    <div class="row" style="margin-bottom:10px">
+      <label class="chk"><input type="radio" name="mode" value="auto" checked> 智能 <span style="color:#9ca3af">能读内容就归类，否则只按文件名</span></label>
+      <label class="chk"><input type="radio" name="mode" value="classify"> 内容归类</label>
+      <label class="chk"><input type="radio" name="mode" value="rename"> 只按文件名</label>
     </div>
+    <div class="row">
+      <label class="chk"><input type="checkbox" id="opt-date" checked> 加时间戳 YYMMDDHHMM</label>
+      <label class="chk"><input type="checkbox" id="opt-pad"> 数字补零（头像1→头像01）</label>
+      <label class="chk"><input type="checkbox" id="opt-lower"> 转小写</label>
+    </div>
+  </div>
 
-    <div class="card">
-      <h2><span class="n">2</span>处理方式</h2>
-      <div class="row" style="margin-bottom:10px">
-        <label class="chk"><input type="radio" name="mode" value="auto" checked> 智能 <span style="color:#9ca3af">能读内容就归类，否则只按文件名</span></label>
-        <label class="chk"><input type="radio" name="mode" value="classify"> 内容归类</label>
-        <label class="chk"><input type="radio" name="mode" value="rename"> 只按文件名</label>
-      </div>
-      <div class="row">
-        <label class="chk"><input type="checkbox" id="opt-date" checked> 加时间戳 YYMMDDHHMM</label>
-        <label class="chk"><input type="checkbox" id="opt-pad"> 数字补零（头像1→头像01）</label>
-        <label class="chk"><input type="checkbox" id="opt-lower"> 转小写</label>
-      </div>
+  <div class="card">
+    <h2><span class="n">3</span>预览并执行</h2>
+    <div id="preview-alert"></div>
+    <div class="row">
+      <button class="primary" id="btn-preview">预览</button>
+      <button id="btn-apply" disabled>确认执行</button>
     </div>
+    <div id="preview-out"></div>
+  </div>
 
-    <div class="card">
-      <h2><span class="n">3</span>预览并执行</h2>
-      <div id="preview-alert"></div>
-      <div class="row">
-        <button class="primary" id="btn-preview">预览</button>
-        <button id="btn-apply" disabled>确认执行</button>
-      </div>
-      <div id="preview-out"></div>
+  <div class="card">
+    <h2><span class="n">4</span>执行记录<span class="note" style="font-weight:400">（每条记录可整批回退，每个文件也可单独回退）</span></h2>
+    <div class="row" style="margin-bottom:10px">
+      <button id="btn-reload-history">刷新</button>
     </div>
-  </section>
-
-  <!-- ============ 回退 ============ -->
-  <section id="tab-rollback" hidden>
-    <div class="card">
-      <h2><span class="n">1</span>选择要回退的文件夹</h2>
-      <div class="row" style="margin-bottom:10px">
-        <button class="primary" id="btn-pick-rb">选择文件夹</button>
-      </div>
-      <div id="rb-dir" class="note">尚未选择</div>
-    </div>
-    <div class="card">
-      <h2><span class="n">2</span>选择要回退的记录</h2>
-      <div id="rb-logs"><div class="empty">请先选择文件夹</div></div>
-    </div>
-  </section>
-
-  <!-- ============ 执行记录 ============ -->
-  <section id="tab-history" hidden>
-    <div class="card">
-      <h2><span class="n">4</span>执行记录<span class="note" style="font-weight:400">（每个文件都能单独回退为原名）</span></h2>
-      <div class="row" style="margin-bottom:10px">
-        <button id="btn-reload-history">刷新</button>
-      </div>
-      <div id="history-out"><div class="empty">打开本页时自动加载</div></div>
-    </div>
-  </section>
+    <div id="history-out"><div class="empty">加载中…</div></div>
+  </div>
 </main>
 
 <!-- 目录浏览器 -->
@@ -213,17 +186,6 @@ const esc = s => (s||'').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&
     }
   }catch(e){ $('#env').textContent='—'; }
 })();
-
-/* ---------- Tab ---------- */
-document.querySelectorAll('.tab').forEach(t => t.onclick = () => {
-  document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
-  t.classList.add('active');
-  const which = t.dataset.tab;
-  $('#tab-apply').hidden = which !== 'apply';
-  $('#tab-rollback').hidden = which !== 'rollback';
-  $('#tab-history').hidden = which !== 'history';
-  if(which === 'history') loadHistory();
-});
 
 /* ---------- 目录浏览器 ---------- */
 function fmtSize(n){
@@ -388,39 +350,6 @@ $('#btn-apply').onclick = async () => {
   }
 };
 
-/* ---------- 回退 ---------- */
-$('#btn-pick-rb').onclick = () => {
-  window._onChoose = async p => { rbDir = p; $('#rb-dir').textContent = p; await loadLogs(); };
-  openBrowser('', window._onChoose);
-};
-
-async function loadLogs(){
-  $('#rb-logs').innerHTML = '<div class="note">读取中…</div>';
-  const r = await fetch('/api/logs?dir='+encodeURIComponent(rbDir)).then(r=>r.json());
-  if(r.error){ $('#rb-logs').innerHTML = `<div class="alert err">${esc(r.error)}</div>`; return; }
-  if(!r.logs.length){ $('#rb-logs').innerHTML = '<div class="empty">这个文件夹没有可回退的记录</div>'; return; }
-  let html = '<table><thead><tr><th>时间</th><th>记录文件</th><th>记录条数</th><th>可回退</th><th></th></tr></thead><tbody>';
-  r.logs.forEach(l=>{
-    html += `<tr>
-      <td class="mono">${esc((l.time||'').replace('T',' '))}</td>
-      <td class="mono">${esc(l.name)}</td>
-      <td>${l.count}</td>
-      <td>${l.rollbackable ? '<span class="badge">'+l.rollbackable+'</span>' : '<span class="badge gray">0</span>'}</td>
-      <td><button ${l.rollbackable?'':'disabled'} onclick="doRollback('${esc(l.file)}',${l.rollbackable})">回退</button></td>
-    </tr>`;
-  });
-  html += '</tbody></table>';
-  $('#rb-logs').innerHTML = html;
-}
-
-window.doRollback = async (file, n) => {
-  if(!confirm(`确认回退 ${n} 个文件？\n\n将按日志把它们改回原名。`)) return;
-  const r = await fetch('/api/rollback', {method:'POST',headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({logfile:file})}).then(r=>r.json());
-  alert(r.ok ? '✅ ' + r.msg : '❌ ' + r.error);
-  await loadLogs();
-};
-
 /* ============================================================
    执行记录：列出每次执行，支持单文件回退为原名
    ============================================================ */
@@ -438,12 +367,15 @@ async function loadHistory(){
   let html = '';
   recs.forEach((rec, ri) => {
     const t = (rec.time || '').replace('T', ' ');
+    const canAll = (rec.items || []).filter(x => x.can_rollback).length > 0;
     html += '<div class="hist-group">';
     html += '<div class="hist-head">'
           + `<span class="hist-time">${esc(t)}</span>`
           + `<span class="hist-dir" title="${esc(rec.dir)}">${esc(rec.dir)}</span>`
           + `<span class="badge gray">${(rec.items||[]).length} 个文件</span>`
           + (rec.exists ? '' : '<span class="badge gray">日志已丢失</span>')
+          + '<span style="flex:1"></span>'
+          + (canAll ? `<button class="mini" onclick="rollbackAll(${ri})">整批回退</button>` : '')
           + '</div>';
     if(rec.items && rec.items.length){
       html += '<table><thead><tr><th style="width:32%">原文件名</th><th style="width:32%">现文件名</th>'
@@ -473,6 +405,18 @@ window.rollbackOne = async (ri, ii) => {
   }).then(x=>x.json());
   if(r.ok){ await loadHistory(); }
   else{ alert('❌ ' + r.error); }
+};
+
+window.rollbackAll = async (ri) => {
+  const rec = window._hist[ri];
+  const n = rec.items.filter(x => x.can_rollback).length;
+  if(!confirm(`整批回退这条记录的 ${n} 个文件？\n\n文件夹：${rec.dir}`)) return;
+  const r = await fetch('/api/rollback', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({logfile: rec.log})
+  }).then(x=>x.json());
+  if(r.ok){ await loadHistory(); }
+  else{ alert('❌ ' + (r.error || '回退失败')); }
 };
 
 $('#btn-reload-history').onclick = loadHistory;
@@ -536,6 +480,7 @@ window.doRestart = async () => {
 
 connectSSE();
 renderFolders();
+loadHistory();
 </script>
 </body>
 </html>

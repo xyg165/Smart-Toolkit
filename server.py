@@ -282,10 +282,25 @@ def api_logs(directory):
 
 
 def api_rollback(logfile):
+    """整批回退，并把日志里的条目标记为已回退（供执行记录页显示状态）"""
     try:
         buf = io.StringIO()
         with redirect_stdout(buf):
             fk.do_rollback(logfile)
+        # 回退成功后更新日志标记（否则「执行记录」页会误显示成「文件已变动」）
+        try:
+            log = Path(logfile)
+            data = json.loads(log.read_text(encoding='utf-8'))
+            folder = Path(data.get('directory', ''))
+            for r in data.get('renames', []):
+                if r.get('rolled_back'):
+                    continue
+                # 原名已恢复、新名已不存在 → 视为已回退
+                if (folder / r.get('old', '')).exists() and not (folder / r.get('new', '')).exists():
+                    r['rolled_back'] = True
+            log.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
+        except Exception:
+            pass
         return {'ok': True, 'msg': buf.getvalue().strip()}
     except Exception as e:
         return {'ok': False, 'error': str(e)}
