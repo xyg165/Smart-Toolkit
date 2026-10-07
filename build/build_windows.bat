@@ -32,6 +32,7 @@ python -m PyInstaller ^
   --collect-all openpyxl ^
   --collect-all pptx ^
   --collect-all pypdf ^
+  --collect-all rapidocr_onnxruntime ^
   --add-data "%cd%\web;web" ^
   --add-data "%cd%\tools\filekit\filekit.py;." ^
   --add-data "%cd%\requirements.txt;." ^

@@ -26,6 +26,7 @@ python3 -m PyInstaller \
   --collect-all openpyxl \
   --collect-all pptx \
   --collect-all pypdf \
+  --collect-all rapidocr_onnxruntime \
   --add-data "$PROJ/web:web" \
   --add-data "$PROJ/tools/filekit/filekit.py:." \
   --add-data "$PROJ/requirements.txt:." \

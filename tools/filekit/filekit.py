@@ -235,33 +235,53 @@ _WEIGHTED = {c: [(k, 3.0) for k in v.get("strong", [])] + [(k, 1.0) for k in v.g
 # 环境自检 —— 告诉用户缺什么、怎么装（而不是静默失败）
 # ============================================================================
 DEP_HINTS = {
-    'tesseract':      ('tesseract（图片 OCR 引擎）',   'apt install tesseract-ocr  /  dnf install tesseract'),
+    'rapidocr':       ('rapidocr-onnxruntime（图片 OCR，纯 Python 免安装）', 'pip install rapidocr-onnxruntime'),
+    'tesseract':      ('tesseract（图片 OCR 引擎，可选）',   'apt install tesseract-ocr  /  dnf install tesseract'),
     'chi_sim':        ('tesseract 中文语言包 chi_sim', 'apt install tesseract-ocr-chi-sim  /  dnf install tesseract-langpack-chi_sim'),
-    'pdftotext':      ('pdftotext（PDF 文本提取）',     'apt install poppler-utils  /  dnf install poppler-utils'),
+    'pdftotext':      ('pdftotext（PDF 文本提取，可选）',     'apt install poppler-utils  /  dnf install poppler-utils'),
     'python-docx':    ('python-docx（读 Word）',        'pip install python-docx'),
     'openpyxl':       ('openpyxl（读 Excel）',          'pip install openpyxl'),
     'python-pptx':    ('python-pptx（读 PPT）',         'pip install python-pptx'),
     'pypdf':          ('pypdf（PDF 备用解析）',         'pip install pypdf'),
 }
 
+def _has_module(name):
+    try:
+        __import__(name)
+        return True
+    except ImportError:
+        return False
+
+
 def check_env(need_content=False):
-    """返回缺失依赖的 key 列表。need_content=True 时检查全部（classify/auto 模式）"""
+    """返回缺失依赖的 key 列表。need_content=True 时检查全部（classify/auto 模式）
+
+    关键：OCR 和 PDF 都是「两个方案任一可用即可」——
+      OCR : rapidocr（纯 Python） 或 tesseract（系统程序）
+      PDF : pypdf（纯 Python）    或 pdftotext（系统程序）
+    所以只要 pip 装齐，就完全不依赖系统程序。
+    """
     missing = []
     if not need_content:
         return missing
-    if not shutil.which('tesseract'):
-        missing.append('tesseract')
-    else:
+
+    # OCR
+    has_rapid = _has_module('rapidocr_onnxruntime')
+    has_tess = bool(shutil.which('tesseract'))
+    if not has_rapid and not has_tess:
+        missing.append('rapidocr')
+    elif has_tess and not has_rapid:
         langs = _run(['tesseract', '--list-langs'], 15)
         if 'chi_sim' not in langs:
             missing.append('chi_sim')
-    if not shutil.which('pdftotext'):
-        missing.append('pdftotext')
+
+    # PDF
+    if not _has_module('pypdf') and not shutil.which('pdftotext'):
+        missing.append('pypdf')
+
     for mod, key in [('docx', 'python-docx'), ('openpyxl', 'openpyxl'),
-                     ('pptx', 'python-pptx'), ('pypdf', 'pypdf')]:
-        try:
-            __import__(mod)
-        except ImportError:
+                     ('pptx', 'python-pptx')]:
+        if not _has_module(mod):
             missing.append(key)
     return missing
 
@@ -345,7 +365,28 @@ def extract_plain(p):
     except Exception:
         return ''
 
+_OCR_ENGINE = None
+
+
+def _ocr_rapid(p):
+    """rapidocr（纯 Python + onnxruntime，无需系统依赖，中文识别更准）"""
+    global _OCR_ENGINE
+    try:
+        if _OCR_ENGINE is None:
+            from rapidocr_onnxruntime import RapidOCR
+            _OCR_ENGINE = RapidOCR()
+        res, _ = _OCR_ENGINE(str(p))
+        return '\n'.join(x[1] for x in res) if res else ''
+    except Exception:
+        return ''
+
+
 def extract_image(p):
+    # ① rapidocr 优先（pip 可装、能被 PyInstaller 打包、中文准确率明显更高）
+    t = _ocr_rapid(p)
+    if t.strip():
+        return t
+    # ② 回退系统 tesseract（装了的话）
     return _run(['tesseract', str(p), '-', '-l', 'chi_sim+eng'], 90)
 
 EXTRACTORS = {

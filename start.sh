@@ -44,23 +44,11 @@ echo "✅ Python 依赖完成"
 
 # ---------- 3. 系统级依赖（可选，用于 PDF / 图片 OCR）----------
 echo
-echo "[2/3] 检查系统级依赖（可选，用于 PDF/图片识别）…"
-MISSING=""
-command -v pdftotext >/dev/null 2>&1 || MISSING="$MISSING pdftotext"
-command -v tesseract >/dev/null 2>&1 || MISSING="$MISSING tesseract"
-
-if [ -n "$MISSING" ]; then
-  echo "⚠️  缺少：$MISSING"
-  if command -v apt >/dev/null 2>&1; then
-    echo "   安装命令：sudo apt install poppler-utils tesseract-ocr tesseract-ocr-chi-sim"
-  elif command -v dnf >/dev/null 2>&1; then
-    echo "   安装命令：sudo dnf install poppler-utils tesseract tesseract-langpack-chi_sim"
-  elif command -v brew >/dev/null 2>&1; then
-    echo "   安装命令：brew install poppler tesseract tesseract-lang"
-  fi
-  echo "   （不装也能用：只是 PDF/图片会标「未分类」，其余格式正常）"
+echo "[2/3] 可选增强检查…"
+if command -v tesseract >/dev/null 2>&1 || command -v pdftotext >/dev/null 2>&1; then
+  echo "ℹ️  检测到系统工具（tesseract/poppler），需要时会作为回退使用"
 else
-  echo "✅ 系统依赖齐全"
+  echo "✅ 无需安装系统程序 —— OCR 用 pip 装的 rapidocr，PDF 用 pypdf"
 fi
 
 # ---------- 4. 启动 ----------

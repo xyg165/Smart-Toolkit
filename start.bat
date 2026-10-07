@@ -44,10 +44,9 @@ echo [OK] Python 依赖完成
 
 REM ---------- 3. 系统依赖提示 ----------
 echo.
-echo [2/2] 说明：PDF/图片识别需要额外系统工具（可选）
-echo     不装也能用，只是 PDF/图片会标「未分类」，Word/Excel/PPT 正常。
-echo     想装的话：https://github.com/UB-Mannheim/tesseract/wiki 下载安装
-echo     并把 tesseract.exe 加入 PATH。
+echo [2/2] 说明：无需安装任何系统程序。
+echo     图片 OCR 用 rapidocr、PDF 用 pypdf，都已随上面的 pip 依赖装好。
+echo     （若系统里有 tesseract/poppler，会自动作为回退使用。）
 
 REM ---------- 4. 启动 ----------
 echo.

@@ -77,7 +77,7 @@ python3 tools/filekit/filekit.py doctor                                   # 检�
 | **文件名清理** | 去空格、非法字符、括号；去"最终版/副本/final"等废话词 | 全部 | 否 |
 | **类型前缀** | 按扩展名自动加 `IMG`/`DOC`/`XLS`/`PPT`/`PDF`/`AUD`/`VID`/`ZIP` | 全部 | 否 |
 | **内容归类** | 读文档正文，判断属于 **38 类**中的哪一类 | classify / auto | 是 |
-| **图片 OCR** | 图片中文 OCR 后再判断类别（发票、合同扫描件）| classify / auto | 是（**系统级**）|
+| **图片 OCR** | 图片中文 OCR 后再判断类别（发票、合同扫描件）| classify / auto | 是（**pip 可装**）|
 | **时间戳入名** | 文件名末尾加 `YYMMDDHHMM`（精确到分钟）| 全部 | 否 |
 | **版本号保留** | 原文件名里的 `v1`/`v2` 原样保留 | 全部 | 否 |
 | **数字补零** | `头像1` → `头像01`（排序正确）| 全部 | 否 |
@@ -93,33 +93,27 @@ python3 tools/filekit/filekit.py doctor                                   # 检�
 
 ## 依赖说明
 
-| 类型 | 装什么 | 什么时候需要 |
-|---|---|---|
-| **Python 包** | `pip install -r requirements.txt` | 读 Word/Excel/PPT/PDF 内容 |
-| **系统程序** | `pdftotext`（poppler）| 读 PDF 文字 |
-| **系统程序** | `tesseract` + 中文包 | 图片 OCR |
-
-系统程序的安装命令：
+**全部是 Python 包 —— 不需要安装任何系统程序。**
 
 ```bash
-# Ubuntu / Debian
-sudo apt install poppler-utils tesseract-ocr tesseract-ocr-chi-sim
-
-# CentOS / RHEL / openEuler
-sudo dnf install poppler-utils tesseract tesseract-langpack-chi_sim
-
-# macOS
-brew install poppler tesseract tesseract-lang
-
-# Windows
-# Tesseract: https://github.com/UB-Mannheim/tesseract/wiki（装完加入 PATH）
-# poppler:   https://github.com/oschwartz10612/poppler-windows/releases
+pip install -r requirements.txt
 ```
 
-> **缺依赖不会崩溃** —— 对应格式标「未分类」，其它格式照常。
-> 只用重命名（`rename` 模式）的话，什么都不用装。
+| 功能 | 需要什么 | 怎么装 |
+|---|---|---|
+| 重命名（`rename` 模式）| **什么都不用** | — |
+| 读 Word / Excel / PPT | python-docx / openpyxl / python-pptx | `pip install` |
+| 读 PDF | pypdf（纯 Python）| `pip install` |
+| **图片 OCR**（发票、扫描件）| **rapidocr-onnxruntime**（纯 Python 中文 OCR）| `pip install` |
 
----
+`start.sh` / `start.bat` 会自动把上面这些装齐，**装完就直接能用，不用再折腾别的**。
+
+> **为什么不用 tesseract 了**：tesseract 是系统程序，pip 装不了、也打不进包，是「别人下载用不了」的主要原因。
+> 改用 rapidocr（纯 Python + onnxruntime，模型内置）后，实测中文识别 **14/14 全对**，而 tesseract 只有 8/14（连「增值税」都认成「雹值税」），速度还一样快。
+>
+> **可选增强**：系统里如果装了 `tesseract` / `poppler`，工具会在 rapidocr/pypdf 不可用时自动回退使用 —— 但不装也完全不影响。
+
+启动时和网页右上角都会自检，缺什么直接告诉你装什么。
 
 ## 可选：打包成独立程序
 
@@ -133,6 +127,8 @@ brew install poppler tesseract tesseract-lang
 
 产物含全部 Python 依赖，直接发给别人，双击运行 → 自动开浏览器。
 
+> ✅ 因为依赖全是纯 Python 包，打包产物**自带 OCR 能力**，使用者什么都不用装。
+>
 > ⚠️ PyInstaller **不能交叉编译**：Windows 的 exe 必须在 Windows 上打。
 > 另：图片 OCR 依赖的 tesseract 是系统程序，**打不进包**，仍需使用者自行安装。
 
