@@ -515,6 +515,65 @@ TEMPLATE_HELP = '''可用变量：
   {分类}_{日期}_{原名}   →  合同_2610071928_采购合同_v1.docx'''
 
 
+DATE_TAIL_RE = re.compile(r'_\d{10}(?:_\d{2,3})?$')     # 尾部时间戳 _2610071928 或 _2610071928_02
+
+
+def strip_normalized(stem, sep='_', all_cats=None):
+    """剥掉文件名里「已经符合命名规范」的片段，返回核心原名
+
+    为什么需要：不剥的话，对同一个文件夹跑第二次会
+      合同_采购合同_v1_2610071928.docx → 合同_合同_采购合同_v1_2610071928_2610072015.docx
+                                          ↑分类重复        ↑时间戳重复
+
+    剥离规则（关键是「剥完不能为空」）：
+      ① 尾部时间戳 _YYMMDDHHMM（含 _02 序号），可连剥两层
+      ② 开头最多 2 个、结尾最多 1 个「已知分类词」——
+         且每一步都要求剩下的部分非空，否则不剥
+         （所以「未分类_方案_261007」→「方案」，不会把「方案」也剥掉）
+    """
+    out = stem
+    # ① 尾部时间戳
+    for _ in range(2):
+        nxt = DATE_TAIL_RE.sub('', out)
+        if nxt == out:
+            break
+        out = nxt
+
+    cats = [c for c in sorted((all_cats or []), key=len, reverse=True) if c]
+
+    def peek_ok(rest):
+        return rest.strip(sep + ' -') != ''
+
+    # ② 开头的文件类型前缀（IMG_/DOC_/XLS_/FILE_…）——
+    #    这类前缀是工具自己加的，剥掉才能幂等（默认模板已不用它）
+    for _ in range(2):
+        m = PREFIX_RE.match(out)
+        if m and peek_ok(out[m.end():]):
+            out = out[m.end():]
+        else:
+            break
+
+    # ③ 开头（最多 2 个）
+    for _ in range(2):
+        hit = False
+        for c in cats:
+            m = re.match('^' + re.escape(c) + re.escape(sep), out)
+            if m and peek_ok(out[m.end():]):
+                out = out[m.end():]
+                hit = True
+                break
+        if not hit:
+            break
+
+    # ④ 结尾（最多 1 个）
+    for c in cats:
+        m = re.search(re.escape(sep) + re.escape(c) + '$', out)
+        if m and peek_ok(out[:m.start()]):
+            out = out[:m.start()]
+            break
+
+    return re.sub(re.escape(sep) + r'{2,}', sep, out).strip(sep + ' -')
+
 def render_name(template, prefix='', cat='', name='', date='', sep='_'):
     """按模板拼装新文件名（不含扩展名）
 
@@ -570,8 +629,13 @@ def build_plan(directory, mode='name', sep='_', add_date=True, lower=False, pad=
                 cat, score, top3 = classify(text, name_hint)
 
         stem = p.stem
-        has_prefix = bool(PREFIX_RE.match(stem))
-        clean = clean_stem(stem, sep) or 'unnamed'
+        # 先剥掉文件名里已符合规范的部分（分类词、尾部时间戳）——
+        # 这是幂等的关键：对同一文件夹跑第二次，不会变成 合同_合同_xxx_日期_日期
+        core = strip_normalized(stem, sep, list(CATEGORIES.keys()) + ['未分类'])
+        if not core.strip(sep):
+            core = stem                      # 名字整体都是规范片段（极少见）→ 退回原名
+        has_prefix = bool(PREFIX_RE.match(core))
+        clean = clean_stem(core, sep) or 'unnamed'
 
         # ---- 按模板拼装 ----
         # 默认模板 {分类}_{原名}_{日期}：不再塞文件类型前缀（后缀已经说明类型了）
@@ -588,7 +652,10 @@ def build_plan(directory, mode='name', sep='_', add_date=True, lower=False, pad=
         if lower:
             new_stem = new_stem.lower()
 
-        plan.append({'old': p.name, 'new': f'{new_stem}{ext}', 'cat': cat or '未分类',
+        new_name = f'{new_stem}{ext}'
+        if new_name == p.name:
+            continue                     # 已经就是这个名字 → 不需要处理
+        plan.append({'old': p.name, 'new': new_name, 'cat': cat or '未分类',
                      'score': score, 'chars': len(text), 'top3': top3})
 
     # ---- 冲突处理 ----
