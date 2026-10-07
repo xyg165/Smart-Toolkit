@@ -131,8 +131,8 @@
     <h2><span class="n">3</span>预览并执行</h2>
     <div id="preview-alert"></div>
     <div class="row">
-      <button class="primary" id="btn-preview">预览</button>
-      <button id="btn-apply" disabled>确认执行</button>
+      <button class="primary" id="btn-apply" disabled>确认执行</button>
+      <span class="note" id="preview-status" style="margin-left:6px"></span>
     </div>
     <div id="batch-bar" class="batch-bar" hidden>
       <span>未分类 <b id="batch-n">0</b> 个，统一填成</span>
@@ -265,7 +265,7 @@ $('#btn-add-manual').onclick = () => {
 
 function renderFolders(){
   const ul = $('#folder-list');
-  if(!dirs.length){ ul.innerHTML = '<div class="empty">还没有选择文件夹</div>'; return; }
+  if(!dirs.length){ ul.innerHTML = '<div class="empty">还没有选择文件夹</div>'; schedulePreview(); return; }
   ul.innerHTML = '';
   dirs.forEach((d,i)=>{
     const li = document.createElement('li');
@@ -276,6 +276,7 @@ function renderFolders(){
     li.appendChild(b);
     ul.appendChild(li);
   });
+  schedulePreview();      // 增删文件夹后自动刷新预览
 }
 
 /* ---------- 预览 / 执行 ---------- */
@@ -289,8 +290,35 @@ function getOpts(){
 }
 const getMode = () => document.querySelector('input[name=mode]:checked').value;
 
-$('#btn-preview').onclick = async () => {
-  if(!dirs.length) return alert('请先添加文件夹');
+// 模式或选项一改，预览自动跟着刷新
+document.querySelectorAll('input[name=mode]').forEach(r => r.onchange = schedulePreview);
+['opt-date','opt-pad','opt-lower'].forEach(id => {
+  const el = document.getElementById(id);
+  if(el) el.onchange = schedulePreview;
+});
+
+let previewTimer = null;
+let previewing = false;
+
+/** 文件夹/选项变化后自动预览（防抖 350ms，避免连续添加时重复跑） */
+function schedulePreview(){
+  clearTimeout(previewTimer);
+  if(!dirs.length){
+    $('#preview-out').innerHTML = '';
+    $('#preview-alert').innerHTML = '';
+    $('#preview-status').textContent = '';
+    $('#batch-bar').hidden = true;
+    $('#btn-apply').disabled = true;
+    return;
+  }
+  $('#preview-status').textContent = '准备预览…';
+  previewTimer = setTimeout(doPreview, 350);
+}
+
+async function doPreview(){
+  if(!dirs.length || previewing) return;
+  previewing = true;
+  $('#preview-status').textContent = '正在读取…';
   $('#preview-alert').innerHTML = '';
   $('#preview-out').innerHTML = '<div class="note">正在读取…</div>';
   const res = await fetch('/api/preview', {method:'POST',headers:{'Content-Type':'application/json'},
@@ -334,12 +362,14 @@ $('#btn-preview').onclick = async () => {
     .forEach(c => cats.add(c));
   $('#cat-suggest').innerHTML = [...cats].map(c => `<option value="${esc(c)}">`).join('');
   $('#btn-apply').disabled = total === 0;
+  $('#preview-status').textContent = `已刷新（${new Date().toLocaleTimeString('zh-CN', {hour12:false})}）`;
   $('#preview-alert').innerHTML = total
     ? `<div class="alert ok">共 <b>${total}</b> 个文件待处理。`
       + `新文件名<b>可直接在表格里修改</b>（尤其「未分类」的），改完再点「确认执行」。`
       + '<div class="hint-inline" style="margin-top:4px">黄色底的行 = 没认出类别，建议手工补一个分类词。</div></div>'
     : '<div class="alert warn">没有需要处理的文件</div>';
-};
+  previewing = false;
+}
 
 function collectGroups(){
   const map = {};
@@ -362,8 +392,12 @@ $('#btn-apply').onclick = async () => {
     body: JSON.stringify({dirs, mode:getMode(), opts:getOpts(), groups})}).then(r=>r.json());
   btn.innerHTML = '确认执行';
   if(r.ok){
-    $('#preview-alert').innerHTML = `<div class="alert ok">✅ 完成：共重命名 <b>${r.renamed}</b> 个文件。如需还原，请到「回退」页。</div>`;
+    $('#preview-alert').innerHTML = `<div class="alert ok">✅ 完成：共重命名 <b>${r.renamed}</b> 个文件。可到下方「执行记录」里回退。</div>`;
     $('#preview-out').innerHTML = '';
+    $('#preview-status').textContent = '';
+    $('#batch-bar').hidden = true;
+    loadHistory();               // 执行完刷新执行记录
+    schedulePreview();           // 再扫一遍（此时大多已规范，通常没剩多少）
   }else{
     $('#preview-alert').innerHTML = `<div class="alert err">❌ ${esc(r.error)}</div>`;
     btn.disabled = false;
