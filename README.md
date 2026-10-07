@@ -67,6 +67,9 @@ python tools/filekit/filekit.py auto --dir "/你的文件夹" --apply
 
 # 回滚
 python tools/filekit/filekit.py rollback "/你的文件夹/_filekit_log_xxx.json"
+
+# 检查环境依赖（下载后先跑这个）
+python tools/filekit/filekit.py doctor
 ```
 
 ### 命名结果

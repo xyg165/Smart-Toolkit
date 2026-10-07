@@ -17,7 +17,7 @@
 | **文件名清理** | 去空格、非法字符、括号，去"最终版/副本/final"等废话词 | 全部 | 否 |
 | **类型前缀** | 按扩展名自动加 `IMG`/`DOC`/`XLS`/`PPT`/`PDF`/`AUD`/`VID`/`ZIP` | 全部 | 否 |
 | **内容归类** | 读文档正文，判断属于 38 类中的哪一类 | classify / auto | **是** |
-| **图片 OCR** | 对图片做中文 OCR，再判断类别（发票、合同扫描件）| classify / auto | **是** |
+| **图片 OCR** | 对图片做中文 OCR，再判断类别（发票、合同扫描件）| classify / auto | **是（系统级）** |
 | **时间戳入名** | 文件名末尾加 `YYMMDDHHMM`（精确到分钟）| 全部 | 否 |
 | **版本号保留** | 原文件名里的 `v1`/`v2` 原样保留 | 全部 | 否 |
 | **数字补零** | `头像1` → `头像01`（排序正确）| 全部 | 否 |
@@ -46,6 +46,7 @@ python filekit.py rename    --dir ./素材            # 只按文件名
 python filekit.py classify  --dir ./文档            # 读内容归类
 python filekit.py auto      --dir ./混合文件夹       # 智能判断
 python filekit.py rollback  ./_filekit_log_xxx.json  # 回滚
+python filekit.py doctor                              # 检查环境依赖
 ```
 
 ---
@@ -108,6 +109,30 @@ dnf install poppler-utils tesseract tesseract-langpack-chi_sim   # RHEL/CentOS
 
 > 缺哪个格式的依赖，只有那个格式会读不到内容（标为「未分类」），不影响其它格式。
 > `rename` 模式完全不需要这些。
+
+### 环境自检（下载后先跑这个）
+
+```bash
+python filekit.py doctor
+```
+
+**依赖齐全时**：
+```
+✅ 环境检查：内容识别所需依赖齐全
+```
+
+**缺依赖时**（会告诉你缺什么、怎么装）：
+```
+⚠️  环境检查：以下依赖缺失 —— 对应格式将标为「未分类」（其它功能不受影响）
+   · tesseract 中文语言包 chi_sim
+       装法：apt install tesseract-ocr-chi-sim  /  dnf install tesseract-langpack-chi_sim
+   提示：只做重命名不读内容的话，可以忽略以上缺失（用 rename 模式）
+```
+
+> ⚠️ **图片 OCR 依赖 tesseract + 中文语言包**，这是**系统级依赖**，pip 装不上。
+> 缺了不会崩溃 —— 对应文件会标「未分类」；`rename` 模式完全不受影响。
+>
+> **如果你只需要重命名**（不需要读内容判断类别），那就**什么都不用装**。
 
 ---
 

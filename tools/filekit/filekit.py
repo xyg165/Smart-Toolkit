@@ -18,7 +18,7 @@ filekit —— 文件整理工具箱（rename + classify 合体版）
   [类型]_[分类]_[原名]_[版本]_[YYMMDDHHMM].ext
    DOC    合同   采购合同   v1    2609151030
 """
-import argparse, os, re, json, sys, datetime, subprocess
+import argparse, os, re, json, sys, datetime, subprocess, shutil
 from pathlib import Path
 
 VERSION = "3.0"
@@ -230,6 +230,52 @@ CATEGORIES = {
 }
 _WEIGHTED = {c: [(k, 3.0) for k in v.get("strong", [])] + [(k, 1.0) for k in v.get("weak", [])]
              for c, v in CATEGORIES.items()}
+
+# ============================================================================
+# 环境自检 —— 告诉用户缺什么、怎么装（而不是静默失败）
+# ============================================================================
+DEP_HINTS = {
+    'tesseract':      ('tesseract（图片 OCR 引擎）',   'apt install tesseract-ocr  /  dnf install tesseract'),
+    'chi_sim':        ('tesseract 中文语言包 chi_sim', 'apt install tesseract-ocr-chi-sim  /  dnf install tesseract-langpack-chi_sim'),
+    'pdftotext':      ('pdftotext（PDF 文本提取）',     'apt install poppler-utils  /  dnf install poppler-utils'),
+    'python-docx':    ('python-docx（读 Word）',        'pip install python-docx'),
+    'openpyxl':       ('openpyxl（读 Excel）',          'pip install openpyxl'),
+    'python-pptx':    ('python-pptx（读 PPT）',         'pip install python-pptx'),
+    'pypdf':          ('pypdf（PDF 备用解析）',         'pip install pypdf'),
+}
+
+def check_env(need_content=False):
+    """返回缺失依赖的 key 列表。need_content=True 时检查全部（classify/auto 模式）"""
+    missing = []
+    if not need_content:
+        return missing
+    if not shutil.which('tesseract'):
+        missing.append('tesseract')
+    else:
+        langs = _run(['tesseract', '--list-langs'], 15)
+        if 'chi_sim' not in langs:
+            missing.append('chi_sim')
+    if not shutil.which('pdftotext'):
+        missing.append('pdftotext')
+    for mod, key in [('docx', 'python-docx'), ('openpyxl', 'openpyxl'),
+                     ('pptx', 'python-pptx'), ('pypdf', 'pypdf')]:
+        try:
+            __import__(mod)
+        except ImportError:
+            missing.append(key)
+    return missing
+
+def print_env_report(missing):
+    if not missing:
+        print('✅ 环境检查：内容识别所需依赖齐全\n')
+        return
+    print('⚠️  环境检查：以下依赖缺失 —— 对应格式将标为「未分类」（其它功能不受影响）')
+    for k in missing:
+        name, how = DEP_HINTS.get(k, (k, ''))
+        print(f'   · {name}')
+        if how:
+            print(f'       装法：{how}')
+    print('   提示：只做重命名不读内容的话，可以忽略以上缺失（用 rename 模式）\n')
 
 # ============================================================================
 # 三、文本提取（延迟导入 —— rename 模式不会加载这些重依赖）
@@ -479,12 +525,19 @@ def main():
     p_b = sub.add_parser('rollback', help='按日志回滚')
     p_b.add_argument('logfile', help='日志文件路径')
 
+    sub.add_parser('doctor', help='检查环境依赖（装了哪些、缺哪些）')
+
     args = ap.parse_args()
+
+    if args.cmd == 'doctor':
+        print_env_report(check_env(need_content=True)); return
 
     if args.cmd == 'rollback':
         do_rollback(args.logfile); return
 
     mode = {'rename': 'name', 'classify': 'classify', 'auto': 'auto'}[args.cmd]
+    if mode != 'name':
+        print_env_report(check_env(need_content=True))
     plan = build_plan(args.dir, mode=mode, sep=args.sep,
                       add_date=not args.no_date, lower=args.lower, pad=args.pad)
     if not plan:
