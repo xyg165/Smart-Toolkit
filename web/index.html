@@ -61,6 +61,12 @@
   .dirlist{list-style:none;margin:0;padding:0}
   .dirlist li{padding:9px 18px;cursor:pointer;display:flex;align-items:center;gap:8px;font-size:13px}
   .dirlist li:hover{background:var(--accent-soft)}
+  .dirlist li.file{cursor:default;color:#9ca3af}
+  .dirlist li.file:hover{background:transparent}
+  .dirlist li.empty-item{cursor:default;color:#9ca3af;justify-content:center}
+  .dirlist li.summary{cursor:default;color:var(--muted);font-size:12px;background:#fafbfc;border-top:1px solid var(--line)}
+  .dirlist li .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .dirlist li .tag{font-size:11.5px;color:#9ca3af;flex:none}
   .modal .foot{padding:12px 18px;border-top:1px solid var(--line);display:flex;gap:8px;justify-content:flex-end}
   .spin{display:inline-block;width:13px;height:13px;border:2px solid #fff;border-top-color:transparent;border-radius:50%;animation:sp .7s linear infinite;vertical-align:-2px}
   @keyframes sp{to{transform:rotate(360deg)}}
@@ -181,6 +187,14 @@ document.querySelectorAll('.tab').forEach(t => t.onclick = () => {
 });
 
 /* ---------- 目录浏览器 ---------- */
+function fmtSize(n){
+  if(n < 1024) return n + ' B';
+  if(n < 1048576) return (n/1024).toFixed(1) + ' KB';
+  if(n < 1073741824) return (n/1048576).toFixed(1) + ' MB';
+  return (n/1073741824).toFixed(2) + ' GB';
+}
+const MAX_SHOW = 400;
+
 async function openBrowser(path, onChoose){
   const d = await fetch('/api/browse?path='+encodeURIComponent(path||'')).then(r=>r.json());
   if(d.error){ alert(d.error); return; }
@@ -188,15 +202,44 @@ async function openBrowser(path, onChoose){
   $('#m-path').textContent = d.path;
   const ul = $('#m-list');
   ul.innerHTML = '';
-  if(!d.dirs.length){
-    ul.innerHTML = '<li style="color:#9ca3af;cursor:default">（没有子文件夹）</li>';
-  }
-  d.dirs.forEach(x=>{
+  const dirs = d.dirs || [], files = d.files || [];
+
+  if(!dirs.length && !files.length){
     const li = document.createElement('li');
-    li.innerHTML = `<span>📁</span><span>${esc(x.name)}</span>`;
+    li.className = 'empty-item';
+    li.textContent = '（这个文件夹是空的）';
+    ul.appendChild(li);
+  }
+
+  // ① 子文件夹（可点进去）
+  dirs.forEach(x=>{
+    const li = document.createElement('li');
+    li.innerHTML = `<span>📁</span><span class="nm">${esc(x.name)}</span><span class="tag">文件夹</span>`;
     li.onclick = () => openBrowser(x.path, onChoose);
     ul.appendChild(li);
   });
+
+  // ② 文件（全部列出 —— 让你知道这个文件夹里有什么可整理的）
+  files.slice(0, MAX_SHOW).forEach(f=>{
+    const li = document.createElement('li');
+    li.className = 'file';
+    li.innerHTML = `<span>📄</span><span class="nm">${esc(f.name)}</span><span class="tag">${fmtSize(f.size)}</span>`;
+    ul.appendChild(li);
+  });
+  if(files.length > MAX_SHOW){
+    const li = document.createElement('li');
+    li.className = 'empty-item';
+    li.textContent = `（还有 ${files.length - MAX_SHOW} 个文件未显示…）`;
+    ul.appendChild(li);
+  }
+
+  // ③ 汇总
+  const li = document.createElement('li');
+  li.className = 'summary';
+  li.textContent = `本文件夹：${dirs.length} 个子文件夹、${files.length} 个文件`
+    + (files.length ? ' —— 选中后可整理这里所有文件' : '');
+  ul.appendChild(li);
+
   $('#modal').classList.add('show');
   $('#m-choose').onclick = () => { $('#modal').classList.remove('show'); onChoose(curPath); };
 }

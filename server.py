@@ -62,24 +62,27 @@ def api_browse(path):
         pass
     if not p.is_dir():
         return {'error': f'不是有效目录：{path}'}
-    dirs = []
-    file_count = 0
+    dirs, files = [], []
     try:
-        for item in sorted(p.iterdir(), key=lambda x: x.name.lower()):
+        # 文件夹排在前面，同组内按名称排序
+        items = sorted(p.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower()))
+        for item in items:
             if item.name.startswith('.'):
                 continue
             try:
                 if item.is_dir():
                     dirs.append({'name': item.name, 'path': str(item)})
                 else:
-                    file_count += 1
+                    st = item.stat()
+                    files.append({'name': item.name, 'size': st.st_size,
+                                  'mtime': int(st.st_mtime)})
             except (PermissionError, OSError):
                 continue
     except PermissionError:
         return {'error': f'无权限访问：{p}'}
     parent = str(p.parent) if p.parent != p else None
-    return {'path': str(p), 'parent': parent, 'dirs': dirs, 'file_count': file_count,
-            'sep': os.sep}
+    return {'path': str(p), 'parent': parent, 'dirs': dirs, 'files': files,
+            'file_count': len(files), 'sep': os.sep}
 
 
 def _plan_quiet(directory, mode, opts):
