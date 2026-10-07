@@ -122,8 +122,23 @@ def watch_sources(interval=2.0):
             time.sleep(4)      # 防抖：一次保存往往触发多次
 
 
-def check_upstream(timeout=4):
-    """查上游最新 tag；失败静默返回 None（不打扰用户）"""
+def check_upstream(timeout=5):
+    """查上游最新版本号；失败静默返回 None（不打扰用户）
+
+    优先读仓库根的 VERSION 文件（raw.githubusercontent.com，不依赖 API 配额、
+    也不需要打 tag）；失败再退回 GitHub tags API。
+    """
+    # ① 首选：仓库根的 VERSION 文件
+    for url in (f'https://raw.githubusercontent.com/{UPSTREAM_REPO}/main/VERSION',
+                f'https://cdn.jsdelivr.net/gh/{UPSTREAM_REPO}@main/VERSION'):
+        try:
+            req = urllib.request.Request(url, headers={'User-Agent': 'filekit'})
+            v = urllib.request.urlopen(req, timeout=timeout).read().decode('utf-8', 'ignore').strip()
+            if v and len(v) < 24:
+                return v.lstrip('v')
+        except Exception:
+            continue
+    # ② 兜底：tags API
     try:
         req = urllib.request.Request(
             f'https://api.github.com/repos/{UPSTREAM_REPO}/tags',
@@ -640,12 +655,18 @@ def main():
 
     # 后台查上游最新版本（失败静默，不打扰）
     def _bg_upstream():
-        v = check_upstream()
-        if v:
-            _UPSTREAM['version'] = v
-            if v != APP_VERSION:
-                print(f'  提示：上游已有新版本 v{v}（当前 v{APP_VERSION}）')
-                _broadcast({'event': 'upstream', 'version': v})
+        first = True
+        while True:
+            v = check_upstream()
+            if v:
+                old_v = _UPSTREAM.get('version')
+                _UPSTREAM['version'] = v
+                if v != APP_VERSION and v != old_v:
+                    print(f'  提示：上游已有新版本 v{v}（当前 v{APP_VERSION}）')
+                    _broadcast({'event': 'upstream', 'version': v})
+            if first:
+                first = False
+            time.sleep(1800)        # 每 30 分钟复查一次
     threading.Thread(target=_bg_upstream, daemon=True).start()
 
     global _SERVER

@@ -21,7 +21,7 @@ filekit —— 文件整理工具箱（rename + classify 合体版）
 import argparse, os, re, json, sys, datetime, subprocess, shutil
 from pathlib import Path
 
-VERSION = "3.3"
+VERSION = "3.4"
 MAX_CHARS = 12000          # classify 模式每个文件最多读多少字
 
 # ============================================================================
