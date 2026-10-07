@@ -14,13 +14,17 @@ filekit web —— 本地网页版文件整理工具
   python server.py --port 8899    # 指定端口
   python server.py --no-browser   # 不自动打开浏览器
 """
-import io, json, os, sys, threading, webbrowser, socket, datetime, importlib.util
+import io, json, os, re, signal, socket, subprocess, sys, threading, time, urllib.request, webbrowser, datetime, importlib.util
 from contextlib import redirect_stdout
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
 
 HERE = Path(__file__).resolve().parent
+
+APP_VERSION = '3.2'
+APP_PORT = 8765
+APP_PORT_SCAN = 60        # 扫描 8765 ~ 8824 找旧实例
 sys.path.insert(0, str(HERE))
 
 
@@ -43,6 +47,7 @@ def load_filekit():
 
 try:
     fk = load_filekit()
+    APP_VERSION = getattr(fk, 'VERSION', APP_VERSION)   # 版本号以 filekit.py 为准
 except Exception as e:
     print(f'[错误] 无法加载 filekit.py: {e}')
     sys.exit(1)
@@ -208,9 +213,104 @@ def api_rollback(logfile):
 
 def api_env():
     missing = fk.check_env(need_content=True)
-    return {'missing': [{'key': k, 'name': fk.DEP_HINTS.get(k, (k, ''))[0],
+    return {'app': 'filekit',
+            'version': APP_VERSION,
+            'pid': os.getpid(),
+            'missing': [{'key': k, 'name': fk.DEP_HINTS.get(k, (k, ''))[0],
                          'how': fk.DEP_HINTS.get(k, (k, ''))[1]} for k in missing],
             'ok': not missing}
+
+
+# ============================================================================
+# 旧实例检测与清理
+#
+# 症状：装了新版本、浏览器里还是老功能 —— 因为**旧的 server 进程还在跑**，
+#       新实例只能用别的端口起，而浏览器打开的是旧进程。
+# 处理：启动前扫描端口 → 认出 filekit 实例 → 尝试停掉 → 再起新的。
+# ============================================================================
+def _port_open(port, timeout=0.05):
+    try:
+        with socket.socket() as sk:
+            sk.settimeout(timeout)
+            return sk.connect_ex(('127.0.0.1', port)) == 0
+    except Exception:
+        return False
+
+
+def _pid_by_port(port):
+    """通过系统命令反查监听某端口的进程 PID
+    用于清理「老版本 filekit」—— 它们的 /api/env 不返回 PID，没法直接停。"""
+    try:
+        if os.name == 'nt':                      # Windows
+            r = subprocess.run(['netstat', '-ano'], capture_output=True, text=True, timeout=8)
+            for line in r.stdout.splitlines():
+                u = line.upper()
+                if f':{port} ' in line and 'LISTENING' in u:
+                    parts = line.split()
+                    if parts and parts[-1].isdigit():
+                        return int(parts[-1])
+        else:                                     # macOS / Linux
+            r = subprocess.run(['lsof', '-ti', f'tcp:{port}', '-sTCP:LISTEN'],
+                               capture_output=True, text=True, timeout=8)
+            if r.stdout.strip():
+                return int(r.stdout.split()[0])
+            r = subprocess.run(['ss', '-lptn', f'sport = :{port}'],
+                               capture_output=True, text=True, timeout=8)
+            m = re.search(r'pid=(\d+)', r.stdout)
+            if m:
+                return int(m.group(1))
+    except Exception:
+        pass
+    return None
+
+
+def _probe(port, timeout=0.5):
+    """探测端口是否为 filekit 服务；是则返回 {port,pid,version}"""
+    try:
+        with urllib.request.urlopen(f'http://127.0.0.1:{port}/api/env', timeout=timeout) as r:
+            d = json.loads(r.read().decode('utf-8', 'ignore'))
+        # 新版本有 app 字段；老版本没有，但有 missing/ok 特征
+        if d.get('app') == 'filekit' or ('missing' in d and 'ok' in d):
+            return {'port': port, 'pid': d.get('pid'), 'version': d.get('version', '旧版（无版本号）')}
+    except Exception:
+        pass
+    return None
+
+
+def find_running(except_pid=None):
+    """扫描端口范围，找出正在运行的 filekit 实例"""
+    found = []
+    for port in range(APP_PORT, APP_PORT + APP_PORT_SCAN):
+        if not _port_open(port):
+            continue
+        info = _probe(port)
+        if not info:
+            continue
+        if info.get('pid') is None:
+            # 老版本不返回 PID → 从系统反查，这样也能停掉
+            info['pid'] = _pid_by_port(port)
+            info['version'] = info.get('version') or '旧版（无版本号）'
+        if info.get('pid') == except_pid:
+            continue
+        found.append(info)
+    return found
+
+
+def stop_instance(inst):
+    """停掉一个 filekit 实例：先 SIGTERM，Windows/失败时用 taskkill"""
+    pid = inst.get('pid')
+    if not pid:
+        return False
+    try:
+        os.kill(int(pid), signal.SIGTERM)
+        return True
+    except Exception:
+        try:
+            subprocess.run(['taskkill', '/F', '/PID', str(pid)],
+                           capture_output=True, timeout=5)
+            return True
+        except Exception:
+            return False
 
 
 # ============================================================================
@@ -244,6 +344,9 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, api_logs(q.get('dir', '')))
         elif u.path == '/api/env':
             self._send(200, api_env())
+        elif u.path == '/api/quit':
+            self._send(200, {'ok': True, 'msg': '正在退出'})
+            threading.Timer(0.3, lambda: os._exit(0)).start()
         else:
             self._send(404, {'error': 'not found'})
 
@@ -279,7 +382,31 @@ def main():
     ap = argparse.ArgumentParser(description='filekit web —— 本地网页版文件整理')
     ap.add_argument('--port', type=int, default=8765)
     ap.add_argument('--no-browser', action='store_true')
+    ap.add_argument('--keep-old', action='store_true',
+                    help='不停掉已在运行的旧实例（默认会停掉，确保用新版本）')
     args = ap.parse_args()
+
+    # ---- 先看看有没有旧实例在跑（装了新版却还是老功能，多半是它）----
+    old_running = find_running(except_pid=os.getpid())
+    if old_running and not args.keep_old:
+        print('=' * 56)
+        print('  检测到已有 filekit 实例在运行：')
+        for r in old_running:
+            print(f"     端口 {r['port']} · 版本 {r['version']} · PID {r.get('pid') or '未知'}")
+        stoppable = [r for r in old_running if r.get('pid')]
+        if stoppable:
+            print('  正在停止旧实例（保证你用的是新版本）…')
+            n_ok = sum(1 for r in stoppable if stop_instance(r))
+            print(f'  已停止 {n_ok}/{len(stoppable)} 个')
+            time.sleep(0.8)
+        else:
+            print('  ⚠️  无法自动停止旧实例（可能权限不足）')
+            print('     请找到那个命令行窗口按 Ctrl+C 关闭，然后重新运行本脚本。')
+            print('     或手动执行：')
+            print('       Linux/macOS :  lsof -ti:8765 | xargs kill')
+            print('       Windows     :  netstat -ano | findstr :8765  →  taskkill /F /PID <PID>')
+            print('     （本次仍会用别的端口启动新版本）')
+        print('=' * 56)
 
     port = free_port(args.port)
     url = f'http://127.0.0.1:{port}/'
@@ -292,9 +419,10 @@ def main():
         pass
 
     print('=' * 56)
-    print('  filekit web —— 本地文件整理工具')
+    print(f'  filekit web —— 本地文件整理工具   v{APP_VERSION}')
     print('=' * 56)
     print(f'  地址：{url}')
+    print(f'  版本：v{APP_VERSION}（浏览器右上角也会显示，用于确认新旧）')
     if missing:
         print(f'  环境：缺 {len(missing)} 项依赖（不影响重命名功能）')
         for k in missing:

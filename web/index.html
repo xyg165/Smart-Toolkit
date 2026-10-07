@@ -19,6 +19,7 @@
   header .spacer{flex:1}
   .env{font-size:12px;padding:4px 10px;border-radius:999px;background:var(--ok-soft);color:var(--ok);border:1px solid #bbf7d0}
   .env.bad{background:var(--warn-soft);color:var(--warn);border-color:#fed7aa;cursor:help}
+  .ver{font-size:12px;color:var(--muted);font-family:ui-monospace,Menlo,Consolas,monospace}
   main{max-width:1180px;margin:0 auto;padding:20px 22px 60px}
   .tabs{display:flex;gap:6px;margin-bottom:16px}
   .tab{padding:7px 16px;border-radius:8px;border:1px solid var(--line);background:#fff;cursor:pointer;font-size:13px;color:var(--muted)}
@@ -84,6 +85,7 @@
   <h1>filekit</h1>
   <span class="sub">本地文件整理 · 重命名 + 内容归类</span>
   <span class="spacer"></span>
+  <span class="ver" id="ver">v…</span>
   <span class="env" id="env">检查中…</span>
 </header>
 
@@ -173,6 +175,7 @@ const esc = s => (s||'').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&
   try{
     const r = await fetch('/api/env').then(r=>r.json());
     const el = $('#env');
+    if(r.version){ $('#ver').textContent = 'v' + r.version; }
     if(r.ok){ el.textContent='✅ 环境就绪'; }
     else{
       el.className='env bad';
