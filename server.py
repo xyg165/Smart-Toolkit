@@ -122,34 +122,68 @@ def watch_sources(interval=2.0):
             time.sleep(4)      # 防抖：一次保存往往触发多次
 
 
-def check_upstream(timeout=5):
+def check_upstream(timeout=4):
     """查上游最新版本号；失败静默返回 None（不打扰用户）
 
-    优先读仓库根的 VERSION 文件（raw.githubusercontent.com，不依赖 API 配额、
-    也不需要打 tag）；失败再退回 GitHub tags API。
+    GitHub 直连在部分地区不稳，所以依次尝试多个源，成功即返回；
+    全失败则退回上次成功的缓存（~/.filekit/upstream.json）。
     """
-    # ① 首选：仓库根的 VERSION 文件
-    for url in (f'https://raw.githubusercontent.com/{UPSTREAM_REPO}/main/VERSION',
-                f'https://cdn.jsdelivr.net/gh/{UPSTREAM_REPO}@main/VERSION'):
+    repo = UPSTREAM_REPO
+    # 顺序按实测可用性排（2026-10）：gh-proxy 0.6s > jsDelivr 1.6s > ghproxy 1.7s
+    # raw.githubusercontent.com 实测必然超时（被墙），不放第一位免得白等
+    sources = [
+        f'https://gh-proxy.com/https://raw.githubusercontent.com/{repo}/main/VERSION',
+        f'https://cdn.jsdelivr.net/gh/{repo}@main/VERSION',
+        f'https://ghproxy.net/https://raw.githubusercontent.com/{repo}/main/VERSION',
+        f'https://raw.githubusercontent.com/{repo}/main/VERSION',
+    ]
+    for url in sources:
         try:
             req = urllib.request.Request(url, headers={'User-Agent': 'filekit'})
             v = urllib.request.urlopen(req, timeout=timeout).read().decode('utf-8', 'ignore').strip()
-            if v and len(v) < 24:
-                return v.lstrip('v')
+            if v and len(v) < 24 and all(c.isdigit() or c == '.' for c in v.lstrip('v')):
+                v = v.lstrip('v')
+                _save_upstream_cache(v)
+                return v
         except Exception:
             continue
-    # ② 兜底：tags API
+    # 兜底：GitHub tags API（可能被墙）
     try:
         req = urllib.request.Request(
-            f'https://api.github.com/repos/{UPSTREAM_REPO}/tags',
+            f'https://api.github.com/repos/{repo}/tags',
             headers={'User-Agent': 'filekit'})
         data = json.loads(urllib.request.urlopen(req, timeout=timeout).read())
         if isinstance(data, list) and data:
-            return str(data[0].get('name', '')).lstrip('v')
+            v = str(data[0].get('name', '')).lstrip('v')
+            if v:
+                _save_upstream_cache(v)
+                return v
     except Exception:
         pass
-    return None
+    return _load_upstream_cache()      # 全部失败 → 用上次的缓存
 
+
+def _upstream_cache_path():
+    return Path.home() / '.filekit' / 'upstream.json'
+
+
+def _save_upstream_cache(v):
+    try:
+        p = _upstream_cache_path()
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps({'version': v,
+                                 'time': datetime.datetime.now().isoformat(timespec='seconds')}),
+                     encoding='utf-8')
+    except Exception:
+        pass
+
+
+def _load_upstream_cache():
+    try:
+        d = json.loads(_upstream_cache_path().read_text(encoding='utf-8'))
+        return d.get('version')
+    except Exception:
+        return None
 
 def _restart_self(port):
     """原地重启当前进程（端口不变）
@@ -514,6 +548,12 @@ class Handler(BaseHTTPRequestHandler):
             _SSE_CLIENTS.append(q)
         try:
             self.wfile.write(b'retry: 3000\n\n')
+            # 补发当前状态：上游检查往往在页面连上之前就跑完了，
+            # 不补发的话那条消息就丢在空气里（页面永远等不到提示）
+            cur = _UPSTREAM.get('version')
+            if cur and cur != APP_VERSION:
+                msg = json.dumps({'event': 'upstream', 'version': cur}, ensure_ascii=False)
+                self.wfile.write(('data: ' + msg + '\n\n').encode('utf-8'))
             self.wfile.flush()
             while True:
                 try:

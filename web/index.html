@@ -172,7 +172,7 @@ const esc = s => (s||'').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&
   try{
     const r = await fetch('/api/env').then(r=>r.json());
     const el = $('#env');
-    if(r.version){ $('#ver').textContent = 'v' + r.version; }
+    if(r.version){ CURRENT_VERSION = r.version; $('#ver').textContent = 'v' + r.version; }
     if(r.upstream && r.version && r.upstream !== r.version){
       showUpdateBar(`🆕 上游已有新版本 <b>v${esc(r.upstream)}</b>（当前 v${esc(r.version)}）`
         + `　<a href="https://github.com/xyg165/Smart-Toolkit" target="_blank">查看更新</a>`
@@ -437,6 +437,7 @@ function showUpdateBar(html){
 }
 
 const REPO_URL = 'https://github.com/xyg165/Smart-Toolkit';
+let CURRENT_VERSION = '';
 
 function connectSSE(){
   try{
@@ -462,9 +463,11 @@ function connectSSE(){
         }
       }
       else if(d.event === 'upstream'){
-        showUpdateBar(`🆕 上游已有新版本 <b>v${esc(d.version)}</b>`
-          + `　<a href="${REPO_URL}" target="_blank">查看更新</a>`
-          + `　<button onclick="this.parentNode.classList.remove('show')">知道了</button>`);
+        if(d.version && d.version !== CURRENT_VERSION){
+          showUpdateBar(`🆕 上游已有新版本 <b>v${esc(d.version)}</b>（当前 v${esc(CURRENT_VERSION)}）`
+            + `　<a href="${REPO_URL}" target="_blank">查看更新</a>`
+            + `　<button onclick="this.parentNode.classList.remove('show')">知道了</button>`);
+        }
       }
     };
     es.onerror = () => { /* EventSource 会自动重连，不用管 */ };
