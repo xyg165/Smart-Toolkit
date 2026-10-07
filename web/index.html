@@ -44,6 +44,11 @@
   th,td{text-align:left;padding:7px 9px;border-bottom:1px solid var(--line);vertical-align:top}
   th{color:var(--muted);font-weight:500;font-size:12px;background:#fafbfc}
   td.mono{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;word-break:break-all}
+  .edit-name{width:100%;font:12px ui-monospace,Menlo,Consolas,monospace;padding:4px 7px;border:1px solid var(--line);border-radius:6px;background:#fff;color:var(--text)}
+  .edit-name:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft)}
+  .edit-name.changed{border-color:var(--accent);background:var(--accent-soft);font-weight:500}
+  tr.uncat td{background:#fffdf5}
+  .hint-inline{font-size:12px;color:var(--muted);font-weight:400}
   .arrow{color:var(--accent)}
   .badge{display:inline-block;padding:1px 7px;border-radius:999px;font-size:11.5px;background:var(--accent-soft);color:var(--accent)}
   .badge.gray{background:#f3f4f6;color:var(--muted)}
@@ -293,24 +298,52 @@ $('#btn-preview').onclick = async () => {
     if(!g.count){ html += '</div>'; return; }
     html += '<table><thead><tr><th style="width:44%">原文件名</th><th style="width:44%">新文件名</th><th>识别</th></tr></thead><tbody>';
     g.items.slice(0,300).forEach(it=>{
-      const badge = it.cat ? `<span class="badge${it.cat==='未分类'?' gray':''}">${esc(it.cat)}</span>` : '';
-      html += `<tr><td class="mono">${esc(it.old)}</td><td class="mono">${esc(it.new)}</td><td>${badge}</td></tr>`;
+      const uncat = (!it.cat || it.cat === '未分类');
+      const badge = it.cat ? `<span class="badge${uncat?' gray':''}">${esc(it.cat)}</span>` : '';
+      html += `<tr${uncat?' class="uncat"':''}>`
+        + `<td class="mono">${esc(it.old)}</td>`
+        + `<td><input class="edit-name" data-dir="${esc(g.dir)}" data-old="${esc(it.old)}" `
+        + `data-cat="${esc(it.cat||'')}" value="${esc(it.new)}"></td>`
+        + `<td>${badge}</td></tr>`;
     });
     html += '</tbody></table>';
     if(g.items.length>300) html += `<div class="note">仅显示前 300 条，共 ${g.items.length} 条</div>`;
     html += '</div>';
   });
   $('#preview-out').innerHTML = html || '<div class="empty">没有需要处理的文件</div>';
+  // 绑定：编辑新文件名时高亮
+  document.querySelectorAll('.edit-name').forEach(inp=>{
+    inp.addEventListener('input', () => {
+      inp.classList.toggle('changed', inp.value !== inp.defaultValue);
+    });
+  });
   $('#btn-apply').disabled = total === 0;
-  $('#preview-alert').innerHTML = total ? `<div class="alert ok">共 <b>${total}</b> 个文件待处理，确认无误后点「确认执行」</div>` : '<div class="alert warn">没有需要处理的文件</div>';
+  $('#preview-alert').innerHTML = total
+    ? `<div class="alert ok">共 <b>${total}</b> 个文件待处理。`
+      + `新文件名<b>可直接在表格里修改</b>（尤其「未分类」的），改完再点「确认执行」。`
+      + '<div class="hint-inline" style="margin-top:4px">黄色底的行 = 没认出类别，建议手工补一个分类词。</div></div>'
+    : '<div class="alert warn">没有需要处理的文件</div>';
 };
 
+function collectGroups(){
+  const map = {};
+  document.querySelectorAll('.edit-name').forEach(inp=>{
+    const d = inp.dataset.dir;
+    (map[d] = map[d] || []).push({old: inp.dataset.old, new: inp.value.trim(), cat: inp.dataset.cat});
+  });
+  return Object.entries(map).map(([dir, items]) => ({dir, items}));
+}
+
 $('#btn-apply').onclick = async () => {
-  if(!confirm('确认执行重命名？\n\n执行后会生成日志，可在「回退」页还原。')) return;
+  const groups = collectGroups();
+  const edited = document.querySelectorAll('.edit-name.changed').length;
+  const msg = '确认执行重命名？' + (edited ? `\n\n（其中 ${edited} 个文件名被你手工改过）` : '')
+            + '\n\n执行后会生成日志，可在「回退」页还原。';
+  if(!confirm(msg)) return;
   const btn = $('#btn-apply'); btn.disabled = true;
   btn.innerHTML = '<span class="spin"></span> 执行中';
   const r = await fetch('/api/apply', {method:'POST',headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({dirs, mode:getMode(), opts:getOpts()})}).then(r=>r.json());
+    body: JSON.stringify({dirs, mode:getMode(), opts:getOpts(), groups})}).then(r=>r.json());
   btn.innerHTML = '确认执行';
   if(r.ok){
     $('#preview-alert').innerHTML = `<div class="alert ok">✅ 完成：共重命名 <b>${r.renamed}</b> 个文件。如需还原，请到「回退」页。</div>`;

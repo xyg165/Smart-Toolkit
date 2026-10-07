@@ -111,13 +111,61 @@ def api_preview(dirs, mode, opts):
     return out
 
 
-def api_apply(dirs, mode, opts):
+_ILLEGAL = set('/\\:*?"<>|')
+
+
+def _check_name(name):
+    """检查单个新文件名是否合法，返回错误信息或 None"""
+    if not name or not name.strip():
+        return '文件名不能为空'
+    if any(c in _ILLEGAL for c in name):
+        bad = ''.join(c for c in name if c in _ILLEGAL)
+        return f'文件名含非法字符 {bad}：{name}'
+    if name in ('.', '..'):
+        return f'文件名无效：{name}'
+    if len(name.encode('utf-8')) > 250:
+        return f'文件名过长（{len(name)} 字符）：{name}'
+    return None
+
+
+def api_apply(dirs, mode, opts, groups=None):
+    """执行重命名。
+    groups（可选）：前端确认过的清单 [{dir, items:[{old,new,cat}]}]
+                    带 items 时以它为准（支持用户手工编辑过的新名字）
+    """
     total, logs = 0, []
-    for d in dirs:
-        try:
+
+    tasks = []
+    if groups:
+        for g in groups:
+            if g.get('dir') and g.get('items'):
+                tasks.append((g['dir'], g['items']))
+    if not tasks:
+        for d in dirs:
             plan = _plan_quiet(d, mode, opts)
-            if not plan:
-                continue
+            if plan:
+                tasks.append((d, plan))
+
+    for d, items in tasks:
+        # ---- 校验（任何问题整批中止，不做半截）----
+        news, olds = {}, set()
+        for it in items:
+            old, nw = it.get('old', ''), (it.get('new') or '').strip()
+            err = _check_name(nw)
+            if err:
+                return {'ok': False, 'error': f'{d} → {err}'}
+            if nw.lower() in news:
+                return {'ok': False, 'error': f'{d} → 有两个文件会重名为同一个名字：{nw}'}
+            news[nw.lower()] = old
+            olds.add(old)
+        for nw, old in news.items():
+            tgt, src = Path(d) / nw, Path(d) / old
+            if tgt.exists() and src.exists() and tgt.resolve() != src.resolve() and nw not in olds:
+                return {'ok': False, 'error': f'{d} → 目标文件已存在：{nw}（请换一个名字）'}
+
+        # ---- 执行 ----
+        try:
+            plan = [{'old': i['old'], 'new': (i['new'] or '').strip(), 'cat': i.get('cat')} for i in items]
             buf = io.StringIO()
             with redirect_stdout(buf):
                 fk.do_apply(d, plan)
@@ -211,7 +259,7 @@ class Handler(BaseHTTPRequestHandler):
                                         payload.get('opts', {})))
         elif u.path == '/api/apply':
             self._send(200, api_apply(payload.get('dirs', []), payload.get('mode', 'auto'),
-                                      payload.get('opts', {})))
+                                      payload.get('opts', {}), payload.get('groups')))
         elif u.path == '/api/rollback':
             self._send(200, api_rollback(payload.get('logfile', '')))
         else:
